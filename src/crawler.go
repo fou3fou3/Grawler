@@ -124,7 +124,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 	for i, url := range subURLS {
 		if url != "" {
-			if url[0] == '/' {
+			if url[0] == '#' {
 				subURLS[i] = ""
 				continue
 			}
