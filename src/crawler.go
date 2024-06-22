@@ -53,7 +53,7 @@ func (bm *SafeBoolMap) Set(key string, value bool) {
 const workers int16 = 3
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
-const dbName string = "webcrawler"
+const dbName string = "search-engine"
 
 func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeBoolMap, robotsMap *SafeStringMap,
 	wg *sync.WaitGroup) {
@@ -156,7 +156,6 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	page := &db.CrawledPage{
 		URL:       urlData.URL,
 		PageText:  pageText,
-		ChildURLs: subURLS,
 		ParentURL: urlData.ParentURL,
 	}
 
@@ -178,11 +177,11 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitCassandra([]string{"127.0.0.1"}, dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
-		log.Fatal("Failed to connect to Cassandra:", err)
+		log.Fatal("Failed to connect to PostgreSQL:", err)
 	}
-	defer db.CloseCassandra()
+	defer db.ClosePostgres()
 
 	seedList, err := jsonData.LoadSeedList()
 	if err != nil {
@@ -214,11 +213,12 @@ func main() {
 	}
 
 	for !frontier.IsEmpty() {
-		urlsData := frontier.Items[0:workers]
-		frontier.Dequeue(workers)
+		urlsData := frontier.Items[:min(int(workers), len(frontier.Items))]
+		urlsDataLength := len(urlsData)
+		frontier.Dequeue(int16(urlsDataLength))
 
 		var wg sync.WaitGroup
-		wg.Add(int(workers))
+		wg.Add(urlsDataLength)
 
 		for _, urlData := range urlsData {
 			go crawl(frontier, urlData, crawledURLSMap, safeRobotsMap, &wg)
