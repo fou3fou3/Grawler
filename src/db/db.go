@@ -31,6 +31,7 @@ func ClosePostgres() {
 type CrawledPage struct {
 	URL         string
 	PageText    string
+	Title       string
 	ChildURLs   []string
 	TimeCrawled time.Time
 	ParentURL   string
@@ -41,7 +42,7 @@ func InsertCrawledPage(page *CrawledPage) error {
 	_, err := db.Exec(`
         INSERT INTO crawled_pages (page_url, page_content, page_title, parent_link, created_at)
         VALUES ($1, $2, $3, $4, $5)
-    `, page.URL, page.PageText, "Title", page.ParentURL, time.Now())
+    `, page.URL, page.PageText, page.Title, page.ParentURL, page.TimeCrawled)
 	return err
 }
 

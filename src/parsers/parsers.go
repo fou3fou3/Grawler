@@ -91,3 +91,18 @@ func IsUserAgentAllowed(robotsContent string, userAgent string, url string) (boo
 	allowed := group.Test(url)
 	return allowed, nil
 }
+
+func ExtractTitle(n *html.Node) (string, error) {
+	if n.Type == html.ElementNode && n.Data == "title" {
+		if n.FirstChild != nil {
+			return n.FirstChild.Data, nil
+		}
+		return "", nil
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if title, err := ExtractTitle(c); title != "" || err != nil {
+			return title, err
+		}
+	}
+	return "", nil
+}

@@ -120,8 +120,10 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 	// Extract page-text
 	pageText := parsers.ExtractPageText(parsedHtml, true)
-
-	// @TODO add title
+	title, err := parsers.ExtractTitle(parsedHtml)
+	if err != nil {
+		log.Error("Extracting title Error", "Error", err)
+	}
 
 	// Extract links
 	subURLS := parsers.ExtractURLS(parsedHtml)
@@ -159,9 +161,11 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	}
 
 	page := &db.CrawledPage{
-		URL:       urlData.URL,
-		PageText:  pageText,
-		ParentURL: urlData.ParentURL,
+		URL:         urlData.URL,
+		PageText:    pageText,
+		ParentURL:   urlData.ParentURL,
+		TimeCrawled: time.Now(),
+		Title:       title,
 	}
 
 	err = db.InsertCrawledPage(page)
