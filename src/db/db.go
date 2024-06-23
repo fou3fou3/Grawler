@@ -118,3 +118,16 @@ func DeleteOldPages(olderThan time.Time) error {
     `, olderThan)
 	return err
 }
+
+func InsertWords(wordsFrequencies map[string]int, parentUrl string) error {
+	for word, freq := range wordsFrequencies {
+		_, err := db.Exec(`
+			INSERT INTO word_frequencies (page_url, word, frequency)
+			VALUES ($1, $2, $3)
+		`, parentUrl, word, freq)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

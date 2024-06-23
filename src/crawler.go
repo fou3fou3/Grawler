@@ -8,7 +8,10 @@ import (
 	"crawler/src/parsers"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 
@@ -50,7 +53,7 @@ func (bm *SafeBoolMap) Set(key string, value bool) {
 	bm.m[key] = value
 }
 
-const workers int16 = 3
+const workers int16 = 5
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
 const dbName string = "search-engine"
@@ -118,6 +121,8 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	// Extract page-text
 	pageText := parsers.ExtractPageText(parsedHtml, true)
 
+	// @TODO add title
+
 	// Extract links
 	subURLS := parsers.ExtractURLS(parsedHtml)
 	log.Debug("Extracted URLS", "Number of URLS", len(subURLS), "URL", urlData.URL)
@@ -162,6 +167,22 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	err = db.InsertCrawledPage(page)
 	if err != nil {
 		log.Error("Error inserting page:", "Error", err)
+		return
+	}
+
+	re := regexp.MustCompile(`\b\w+\b`)
+	words := re.FindAllString(pageText, -1)
+
+	wordsFrequencies := make(map[string]int)
+
+	for _, word := range words {
+		word = strings.ToLower(word)
+		wordsFrequencies[word]++
+	}
+
+	err = db.InsertWords(wordsFrequencies, urlData.URL)
+	if err != nil {
+		log.Error("Error inserting words:", "Error", err)
 		return
 	}
 
@@ -213,6 +234,8 @@ func main() {
 	}
 
 	for !frontier.IsEmpty() {
+		start := time.Now()
+
 		urlsData := frontier.Items[:min(int(workers), len(frontier.Items))]
 		urlsDataLength := len(urlsData)
 		frontier.Dequeue(int16(urlsDataLength))
@@ -228,6 +251,9 @@ func main() {
 
 		jsonData.DumpRobots(robotsMap)
 
+		elapsed := time.Since(start)
+
+		log.Warnf("Crawling %d URLS took %s", workers, elapsed)
 	}
 
 }
