@@ -232,7 +232,7 @@ func main() {
 	for _, url := range seedList {
 		urlData := common.UrlData{
 			URL:       url,
-			ParentURL: "NULL",
+			ParentURL: nil,
 		}
 		frontier.Enqueue(urlData)
 	}

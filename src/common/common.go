@@ -7,7 +7,7 @@ type RobotsItem struct {
 
 type UrlData struct {
 	URL       string
-	ParentURL string
+	ParentURL interface{}
 }
 
 type Queue struct {

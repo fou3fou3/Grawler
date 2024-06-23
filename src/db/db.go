@@ -34,7 +34,7 @@ type CrawledPage struct {
 	Title       string
 	ChildURLs   []string
 	TimeCrawled time.Time
-	ParentURL   string
+	ParentURL   interface{}
 }
 
 // InsertCrawledPage inserts a new page into the crawled_pages table
