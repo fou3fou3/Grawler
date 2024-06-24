@@ -6,6 +6,8 @@ import (
 	"crawler/src/httpReqs"
 	"crawler/src/jsonData"
 	"crawler/src/parsers"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
@@ -51,6 +53,13 @@ func (bm *SafeBoolMap) Set(key string, value bool) {
 	bm.Lock()
 	defer bm.Unlock()
 	bm.m[key] = value
+}
+
+func hashSHA256(text string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(text))
+	hashBytes := hasher.Sum(nil)
+	return hex.EncodeToString(hashBytes)
 }
 
 const workers int16 = 5
@@ -120,6 +129,19 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 	// Extract page-text
 	pageText := parsers.ExtractPageText(parsedHtml, true)
+	pageHash := hashSHA256(pageText)
+
+	pageExists, err := db.CheckPageHash(pageHash)
+	if err != nil {
+		log.Error("Failed to check page hash", "Error", err)
+		return
+	}
+
+	if pageExists {
+		log.Warn("Page already exists", "hash", pageHash, "current page url", urlData.URL)
+		return
+	}
+
 	title, err := parsers.ExtractTitle(parsedHtml)
 	if err != nil {
 		log.Error("Extracting title Error", "Error", err)
@@ -166,6 +188,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		ParentURL:   urlData.ParentURL,
 		TimeCrawled: time.Now(),
 		Title:       title,
+		PageHash:    pageHash,
 	}
 
 	err = db.InsertCrawledPage(page)
@@ -184,7 +207,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		wordsFrequencies[word]++
 	}
 
-	err = db.InsertWords(wordsFrequencies, urlData.URL)
+	err = db.InsertWords(wordsFrequencies, urlData.URL, len(pageText))
 	if err != nil {
 		log.Error("Error inserting words:", "Error", err)
 		return

@@ -31,6 +31,7 @@ func ClosePostgres() {
 type CrawledPage struct {
 	URL         string
 	PageText    string
+	PageHash    string
 	Title       string
 	ChildURLs   []string
 	TimeCrawled time.Time
@@ -40,9 +41,9 @@ type CrawledPage struct {
 // InsertCrawledPage inserts a new page into the crawled_pages table
 func InsertCrawledPage(page *CrawledPage) error {
 	_, err := db.Exec(`
-        INSERT INTO crawled_pages (page_url, page_content, page_title, parent_link, created_at)
-        VALUES ($1, $2, $3, $4, $5)
-    `, page.URL, page.PageText, page.Title, page.ParentURL, page.TimeCrawled)
+        INSERT INTO crawled_pages (page_url, page_content, page_title, parent_link, created_at, page_hash)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `, page.URL, page.PageText, page.Title, page.ParentURL, page.TimeCrawled, page.PageHash)
 	return err
 }
 
@@ -120,15 +121,32 @@ func DeleteOldPages(olderThan time.Time) error {
 	return err
 }
 
-func InsertWords(wordsFrequencies map[string]int, parentUrl string) error {
+func InsertWords(wordsFrequencies map[string]int, parentUrl string, pageContentLength int) error {
 	for word, freq := range wordsFrequencies {
+		TF := float32(freq) / float32(pageContentLength)
 		_, err := db.Exec(`
 			INSERT INTO word_frequencies (page_url, word, frequency)
 			VALUES ($1, $2, $3)
-		`, parentUrl, word, freq)
+		`, parentUrl, word, TF)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// GetCrawledPage retrieves a page by its URL
+func CheckPageHash(hash string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1
+            FROM crawled_pages 
+            WHERE page_hash = $1
+        )
+    `, hash).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
