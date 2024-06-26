@@ -6,6 +6,7 @@ import (
 	"crawler/src/httpReqs"
 	"crawler/src/jsonData"
 	"crawler/src/parsers"
+
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -80,6 +81,19 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		return
 	}
 
+	pageExists, crawledTimestamp, err := db.CheckPageExistance(urlData.URL)
+	if err != nil {
+		log.Error("Error while checking page existance", "error", err)
+	}
+
+	if pageExists {
+		oneAndHalfMonthsAgo := time.Now().AddDate(0, -1, -15)
+		if !crawledTimestamp.Before(oneAndHalfMonthsAgo) {
+			// log.Debug("Page has been crawled recently", "URL", urlData.URL)
+			return
+		}
+	}
+
 	scheme, host, err := parsers.ExtractBaseURL(urlData.URL)
 	if err != nil {
 		log.Error("Failed to extract base URL", "Error", err)
@@ -146,14 +160,15 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	pageText := parsers.ExtractPageText(parsedHtml, true)
 	pageHash := hashSHA256(pageText)
 
-	pageExists, err := db.CheckPageHash(pageHash)
+	hashExists, err := db.CheckPageHash(pageHash)
 	if err != nil {
 		log.Error("Failed to check page hash", "Error", err)
 		return
 	}
 
-	if pageExists {
-		// log.Warn("Page already exists", "hash", pageHash, "current page url", urlData.URL)
+	// Return if page has an equivilant or the content hasen't been updated since last time crawled
+	if hashExists {
+		// log.Warn("Hash already exists", "hash", pageHash, "current page url", urlData.URL)
 		return
 	}
 
@@ -161,9 +176,12 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	if metaData.Description == "" {
 		metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
 	}
+
 	if metaData.SiteName == "" {
 		metaData.SiteName = host
 	}
+
+	// @TODO icon link should be per host
 	if metaData.IconLink != "" {
 		if metaData.IconLink[0] == '/' {
 			metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
@@ -188,6 +206,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 				return
 			}
 
+			// CHECK IF THIS WORKS @TODO
 			if url[0] == '/' {
 				url = fmt.Sprintf("%s%s", baseUrl, url)
 				// subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
@@ -217,10 +236,20 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		Host:        host,
 	}
 
-	err = db.InsertCrawledPage(page)
+	if pageExists {
+		err = db.UpdatePage(page)
+	} else {
+		err = db.InsertCrawledPage(page)
+	}
+
 	if err != nil {
-		log.Error("Error inserting page:", "Error", err)
+		log.Error("Error inserting/updating page:", "Error", err)
 		return
+	}
+
+	// consider removing all page words before updating
+	if pageExists {
+		db.DeleteWords(urlData.URL)
 	}
 
 	re := regexp.MustCompile(`\b\w+\b`)
@@ -233,7 +262,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		wordsFrequencies[word]++
 	}
 
-	err = db.InsertWords(wordsFrequencies, urlData.URL, len(pageText))
+	err = db.InsertWords(wordsFrequencies, urlData.URL)
 	if err != nil {
 		log.Error("Error inserting words:", "Error", err)
 		return
@@ -250,7 +279,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "fouad1977", dbName)
 	if err != nil {
 		log.Fatal("Failed to connect to PostgreSQL:", err)
 	}

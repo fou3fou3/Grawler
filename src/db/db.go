@@ -1,9 +1,11 @@
 package db
 
 import (
+	"context"
 	"crawler/src/common"
 	"database/sql"
 	"fmt"
+	"time"
 
 	// "time"
 
@@ -30,30 +32,78 @@ func ClosePostgres() {
 }
 
 // InsertCrawledPage inserts a new page into the crawled_pages table
-func InsertCrawledPage(page *common.CrawledPage) error {
+func InsertCrawledPage(crawledPage *common.CrawledPage) error {
 	_, err := db.Exec(`
         INSERT INTO crawled_pages (url, content, title, parent_url, timestamp, content_hash, host, icon_link, site_name, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    `, page.URL, page.PageText, page.MetaData.Title, page.ParentURL, page.TimeCrawled, page.PageHash, page.Host,
-		page.MetaData.IconLink, page.MetaData.SiteName, page.MetaData.Description)
+    `, crawledPage.URL, crawledPage.PageText, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash, crawledPage.Host,
+		crawledPage.MetaData.IconLink, crawledPage.MetaData.SiteName, crawledPage.MetaData.Description)
 	return err
 }
 
-func InsertWords(wordsFrequencies map[string]int, parentUrl string, pageContentLength int) error {
+// UpdatePageText updates the content of a given URL
+func UpdatePage(crawledPage *common.CrawledPage) error {
+	_, err := db.Exec(`
+        UPDATE crawled_pages
+        SET content = $1, title = $2, parent_url = $3, timestamp = $4, content_hash = $5, description = $6
+        WHERE url = $7
+    `, crawledPage.PageText, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash,
+		crawledPage.MetaData.Description, crawledPage.URL)
+	return err
+}
+
+func InsertWords(wordsFrequencies map[string]int, pageURL string) error {
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+
 	for word, freq := range wordsFrequencies {
-		TF := float32(freq) / float32(pageContentLength)
-		_, err := db.Exec(`
+		// (if you want word ) TF := float32(freq) / float32(pageContentLength)
+
+		_, err := tx.Exec(`
 			INSERT INTO page_words (url, word, frequency)
 			VALUES ($1, $2, $3)
-		`, parentUrl, word, TF)
+		`, pageURL, word, freq)
 		if err != nil {
 			return err
 		}
+
 	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// GetCrawledPage retrieves a page by its URL
+func DeleteWords(pageURL string) error {
+	_, err := db.Exec("DELETE FROM page_words WHERE url = $1", pageURL)
+	return err
+}
+
+// Check if a page has been crawled in db
+func CheckPageExistance(pageURL string) (bool, time.Time, error) {
+	var timestamp time.Time
+
+	err := db.QueryRow(`
+        SELECT timestamp
+        FROM crawled_pages 
+        WHERE url = $1
+    `, pageURL).Scan(&timestamp)
+
+	if err == sql.ErrNoRows {
+		return false, time.Time{}, nil
+	} else if err != nil {
+		return false, time.Time{}, err
+	}
+
+	return true, timestamp, nil
+}
+
+// Checks if page's hash exists
 func CheckPageHash(hash string) (bool, error) {
 	var exists bool
 	err := db.QueryRow(`
@@ -68,29 +118,6 @@ func CheckPageHash(hash string) (bool, error) {
 	}
 	return exists, nil
 }
-
-// **MIGHT NEED FOR LATER** // GetCrawledPage retrieves a page by its URL
-// func GetCrawledPage(url string) (*common.CrawledPage, error) {
-// 	var page common.CrawledPage
-// 	err := db.QueryRow(`
-//         SELECT page_url, page_content, created_at, parent_link
-//         FROM crawled_pages WHERE page_url = $1
-//     `, url).Scan(&page.URL, &page.PageText, &page.TimeCrawled, &page.ParentURL)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &page, nil
-// }
-
-// // UpdatePageText updates the page_content of a given URL
-// func UpdatePageText(url, newText string) error {
-// 	_, err := db.Exec(`
-//         UPDATE crawled_pages
-//         SET page_content = $1, created_at = $2
-//         WHERE page_url = $3
-//     `, newText, time.Now(), url)
-// 	return err
-// }
 
 // // GetPagesByParent finds all pages with a given parent URL
 // func GetPagesByParent(parentURL string) ([]string, error) {
@@ -133,12 +160,4 @@ func CheckPageHash(hash string) (bool, error) {
 // 		pages = append(pages, &page)
 // 	}
 // 	return pages, rows.Err()
-// }
-
-// // DeleteOldPages deletes pages not crawled since the given time
-// func DeleteOldPages(olderThan time.Time) error {
-// 	_, err := db.Exec(`
-//         DELETE FROM crawled_pages WHERE created_at < $1
-//     `, olderThan)
-// 	return err
 // }
