@@ -65,8 +65,11 @@ func hashSHA256(text string) string {
 const workers int16 = 5
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
-const dbName string = "search-engine"
+const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
+
+// for specefic websites crawling
+// var allowedHosts = map[string]bool{"en.wikipedia.org": true}
 
 func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeBoolMap, robotsMap *SafeStringMap,
 	wg *sync.WaitGroup) {
@@ -82,6 +85,11 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		log.Error("Failed to extract base URL", "Error", err)
 		return
 	}
+	// for specefic websites crawling
+	// if _, exists := allowedHosts[host]; !exists {
+	// 	return
+	// }
+
 	baseUrl := fmt.Sprintf("%s://%s", scheme, host)
 
 	if respectRobots {
@@ -121,6 +129,11 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		return
 	}
 
+	if resp.StatusCode > 399 {
+		log.Error("Request Error", "status-code", resp.StatusCode, "URL", urlData.URL)
+		return
+	}
+
 	defer resp.Body.Close()
 
 	parsedHtml, err := html.Parse(resp.Body)
@@ -140,7 +153,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	}
 
 	if pageExists {
-		log.Warn("Page already exists", "hash", pageHash, "current page url", urlData.URL)
+		// log.Warn("Page already exists", "hash", pageHash, "current page url", urlData.URL)
 		return
 	}
 
