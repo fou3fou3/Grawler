@@ -90,4 +90,4 @@ CREATE INDEX IF NOT EXISTS idx_word
 
 ```
 
-Create this postgresql table and run the script be free to tune it to how you want it to be!
+# Create this postgresql database and run the script be free to tune it to how you want it to be!
