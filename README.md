@@ -1,3 +1,5 @@
+# Create this Postgresql database and run the script be free to tune it to how you want it to be!
+
 ```sql
 -- Database: web-crawler
 
@@ -89,5 +91,3 @@ CREATE INDEX IF NOT EXISTS idx_word
     TABLESPACE pg_default;
 
 ```
-
-# Create this postgresql database and run the script be free to tune it to how you want it to be!
