@@ -1,7 +1,7 @@
 package parsers
 
 import (
-	"fmt"
+	"crawler/src/common"
 	"net/url"
 	"strings"
 
@@ -9,27 +9,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-func ExtractURLS(n *html.Node) []string {
-	var urls []string
-	if n.Type == html.ElementNode && n.Data == "a" {
-		for _, attr := range n.Attr {
-			if attr.Key == "href" {
-				urls = append(urls, attr.Val)
-			}
-		}
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		urls = append(urls, ExtractURLS(c)...)
-	}
-	return urls
-}
-
-func ExtractBaseURL(link string) (string, error) {
+func ExtractBaseURL(link string) (string, string, error) {
 	u, err := url.Parse(link)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
+	return u.Scheme, u.Host, nil
 }
 
 func ConvertUrlToString(encodedUrl string) (string, error) {
@@ -75,6 +60,76 @@ func ExtractPageText(n *html.Node, trimSpace bool) string {
 	}
 }
 
+func ExtractMetaData(n *html.Node) common.MetaData {
+	var metaData common.MetaData
+
+	var traverse func(*html.Node)
+	traverse = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "link":
+				var rel, href string
+				for _, a := range n.Attr {
+					switch a.Key {
+					case "rel":
+						rel = a.Val
+					case "href":
+						href = a.Val
+
+						if (rel == "icon" || rel == "icon shortcut") && metaData.IconLink == "" {
+							metaData.IconLink = href
+						}
+					}
+				}
+
+			case "title":
+				if n.FirstChild != nil && metaData.Title == "" {
+					metaData.Title = n.FirstChild.Data
+				}
+			case "meta":
+				var name, property, content string
+				for _, a := range n.Attr {
+					switch a.Key {
+					case "name":
+						name = a.Val
+					case "property":
+						property = a.Val
+					case "content":
+						content = a.Val
+					}
+				}
+				if (name == "description" || property == "og:description") && metaData.Description == "" {
+					metaData.Description = content
+				}
+				if property == "og:site_name" && metaData.SiteName == "" {
+					metaData.SiteName = content
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			traverse(c)
+		}
+	}
+
+	traverse(n)
+	return metaData
+}
+
+func ExtractURLS(n *html.Node) []string {
+	var urls []string
+	if n.Type == html.ElementNode && n.Data == "a" {
+		for _, attr := range n.Attr {
+			if attr.Key == "href" {
+				urls = append(urls, attr.Val)
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		urls = append(urls, ExtractURLS(c)...)
+	}
+	return urls
+}
+
 func IsUserAgentAllowed(robotsContent string, userAgent string, url string) (bool, error) {
 	robots, err := robotstxt.FromBytes([]byte(robotsContent))
 	if err != nil {
@@ -90,19 +145,4 @@ func IsUserAgentAllowed(robotsContent string, userAgent string, url string) (boo
 	// Check the Allow/Disallow rules
 	allowed := group.Test(url)
 	return allowed, nil
-}
-
-func ExtractTitle(n *html.Node) (string, error) {
-	if n.Type == html.ElementNode && n.Data == "title" {
-		if n.FirstChild != nil {
-			return n.FirstChild.Data, nil
-		}
-		return "", nil
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if title, err := ExtractTitle(c); title != "" || err != nil {
-			return title, err
-		}
-	}
-	return "", nil
 }

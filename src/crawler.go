@@ -66,6 +66,7 @@ const workers int16 = 5
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
 const dbName string = "search-engine"
+const descriptionLengthFromDocument int = 160
 
 func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeBoolMap, robotsMap *SafeStringMap,
 	wg *sync.WaitGroup) {
@@ -76,11 +77,12 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		return
 	}
 
-	baseUrl, err := parsers.ExtractBaseURL(urlData.URL)
+	scheme, host, err := parsers.ExtractBaseURL(urlData.URL)
 	if err != nil {
 		log.Error("Failed to extract base URL", "Error", err)
 		return
 	}
+	baseUrl := fmt.Sprintf("%s://%s", scheme, host)
 
 	if respectRobots {
 		var robots string
@@ -142,19 +144,28 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		return
 	}
 
-	title, err := parsers.ExtractTitle(parsedHtml)
-	if err != nil {
-		log.Error("Extracting title Error", "Error", err)
+	metaData := parsers.ExtractMetaData(parsedHtml)
+	if metaData.Description == "" {
+		metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
+	}
+	if metaData.SiteName == "" {
+		metaData.SiteName = host
+	}
+	if metaData.IconLink != "" {
+		if metaData.IconLink[0] == '/' {
+			metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
+		}
 	}
 
 	// Extract links
 	subURLS := parsers.ExtractURLS(parsedHtml)
 	log.Debug("Extracted URLS", "Number of URLS", len(subURLS), "URL", urlData.URL)
 
-	for i, url := range subURLS {
+	for _, url := range subURLS {
 		if url != "" {
 			if url[0] == '#' {
-				subURLS[i] = ""
+				// subURLS[i] = ""
+				// commented because we are not currently pushing suburls to the db
 				continue
 			}
 
@@ -166,7 +177,8 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 			if url[0] == '/' {
 				url = fmt.Sprintf("%s%s", baseUrl, url)
-				subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
+				// subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
+				// commented because we are not currently pushing suburls to the db
 			}
 
 			subUrlData := common.UrlData{
@@ -182,13 +194,14 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		}
 	}
 
-	page := &db.CrawledPage{
+	page := &common.CrawledPage{
 		URL:         urlData.URL,
 		PageText:    pageText,
 		ParentURL:   urlData.ParentURL,
 		TimeCrawled: time.Now(),
-		Title:       title,
 		PageHash:    pageHash,
+		MetaData:    metaData,
+		Host:        host,
 	}
 
 	err = db.InsertCrawledPage(page)
@@ -214,7 +227,6 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 	}
 
 	crawledURLSMap.Set(urlData.URL, true)
-
 	log.Info("Done Crawling", "URL", urlData.URL)
 }
 
@@ -261,7 +273,7 @@ func main() {
 	}
 
 	for !frontier.IsEmpty() {
-		start := time.Now()
+		// start := time.Now()
 
 		urlsData := frontier.Items[:min(int(workers), len(frontier.Items))]
 		urlsDataLength := len(urlsData)
@@ -278,9 +290,9 @@ func main() {
 
 		jsonData.DumpRobots(robotsMap)
 
-		elapsed := time.Since(start)
+		// elapsed := time.Since(start)
 
-		log.Warnf("Crawling %d URLS took %s", workers, elapsed)
+		// log.Warnf("Crawling %d URLS took %s", workers, elapsed)
 	}
 
 }

@@ -1,5 +1,7 @@
 package common
 
+import "time"
+
 type RobotsItem struct {
 	BaseUrl string `json:"base_url"`
 	Robots  string `json:"robots"`
@@ -12,6 +14,28 @@ type UrlData struct {
 
 type Queue struct {
 	Items []UrlData
+}
+
+type MetaData struct {
+	IconLink string
+
+	SiteName    string
+	Title       string
+	Description string
+}
+
+// CrawledPage represents a web page in the database
+type CrawledPage struct {
+	Host     string
+	MetaData MetaData
+
+	ParentURL interface{}
+	URL       string
+
+	PageText string
+	PageHash string
+
+	TimeCrawled time.Time
 }
 
 func (q *Queue) Enqueue(data UrlData) {
