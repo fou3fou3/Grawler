@@ -39,6 +39,8 @@ type CrawledPage struct {
 	TimeCrawled time.Time
 }
 
+// string safe map
+
 type SafeStringMap struct {
 	M map[string]string
 	sync.Mutex
@@ -57,6 +59,8 @@ func (sm *SafeStringMap) Set(key, value string) {
 	sm.M[key] = value
 }
 
+// bool safe map
+
 type SafeBoolMap struct {
 	M map[string]bool
 	sync.Mutex
@@ -73,6 +77,8 @@ func (bm *SafeBoolMap) Set(key string, value bool) {
 	defer bm.Unlock()
 	bm.M[key] = value
 }
+
+// timestamp safe map
 
 type SafeTimestampMap struct {
 	M map[string]time.Time
@@ -91,6 +97,8 @@ func (tm *SafeTimestampMap) Set(key string, value time.Time) {
 	defer tm.Unlock()
 	tm.M[key] = value
 }
+
+// Queue type && functions
 
 type Queue struct {
 	Items []UrlData
