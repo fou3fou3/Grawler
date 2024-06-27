@@ -1,6 +1,11 @@
 package common
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"sync"
+	"time"
+)
 
 type RobotsItem struct {
 	BaseUrl string `json:"base_url"`
@@ -10,10 +15,6 @@ type RobotsItem struct {
 type UrlData struct {
 	URL       string
 	ParentURL interface{}
-}
-
-type Queue struct {
-	Items []UrlData
 }
 
 type MetaData struct {
@@ -36,6 +37,63 @@ type CrawledPage struct {
 	PageHash string
 
 	TimeCrawled time.Time
+}
+
+type SafeStringMap struct {
+	M map[string]string
+	sync.Mutex
+}
+
+func (sm *SafeStringMap) Get(key string) (string, bool) {
+	sm.Lock()
+	defer sm.Unlock()
+	val, ok := sm.M[key]
+	return val, ok
+}
+
+func (sm *SafeStringMap) Set(key, value string) {
+	sm.Lock()
+	defer sm.Unlock()
+	sm.M[key] = value
+}
+
+type SafeBoolMap struct {
+	M map[string]bool
+	sync.Mutex
+}
+
+func (bm *SafeBoolMap) Get(key string) bool {
+	bm.Lock()
+	defer bm.Unlock()
+	return bm.M[key]
+}
+
+func (bm *SafeBoolMap) Set(key string, value bool) {
+	bm.Lock()
+	defer bm.Unlock()
+	bm.M[key] = value
+}
+
+type SafeTimestampMap struct {
+	M map[string]time.Time
+	sync.Mutex
+}
+
+func (tm *SafeTimestampMap) Get(key string) (time.Time, bool) {
+	tm.Lock()
+	defer tm.Unlock()
+	val, ok := tm.M[key]
+	return val, ok
+}
+
+func (tm *SafeTimestampMap) Set(key string, value time.Time) {
+	tm.Lock()
+	defer tm.Unlock()
+	tm.M[key] = value
+}
+
+type Queue struct {
+	Items []UrlData
 }
 
 func (q *Queue) Enqueue(data UrlData) {
@@ -67,4 +125,11 @@ func RobotsMapToList(robotsMap map[string]string) []RobotsItem {
 		})
 	}
 	return items
+}
+
+func HashSHA256(text string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(text))
+	hashBytes := hasher.Sum(nil)
+	return hex.EncodeToString(hashBytes)
 }

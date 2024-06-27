@@ -7,8 +7,6 @@ import (
 	"crawler/src/jsonData"
 	"crawler/src/parsers"
 
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
@@ -21,58 +19,17 @@ import (
 	"golang.org/x/net/html"
 )
 
-type SafeStringMap struct {
-	m map[string]string
-	sync.Mutex
-}
-
-type SafeBoolMap struct {
-	m map[string]bool
-	sync.Mutex
-}
-
-func (sm *SafeStringMap) Get(key string) (string, bool) {
-	sm.Lock()
-	defer sm.Unlock()
-	val, ok := sm.m[key]
-	return val, ok
-}
-
-func (sm *SafeStringMap) Set(key, value string) {
-	sm.Lock()
-	defer sm.Unlock()
-	sm.m[key] = value
-}
-
-func (bm *SafeBoolMap) Get(key string) bool {
-	bm.Lock()
-	defer bm.Unlock()
-	return bm.m[key]
-}
-
-func (bm *SafeBoolMap) Set(key string, value bool) {
-	bm.Lock()
-	defer bm.Unlock()
-	bm.m[key] = value
-}
-
-func hashSHA256(text string) string {
-	hasher := sha256.New()
-	hasher.Write([]byte(text))
-	hashBytes := hasher.Sum(nil)
-	return hex.EncodeToString(hashBytes)
-}
-
 const workers int16 = 5
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
 const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
+const hostCrawlDelay time.Duration = 10000 * time.Millisecond
 
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}
 
-func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeBoolMap, robotsMap *SafeStringMap,
+func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *common.SafeBoolMap, robotsMap *common.SafeStringMap, hostLastCrawledMap *common.SafeTimestampMap,
 	wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -88,7 +45,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 	if pageExists {
 		oneAndHalfMonthsAgo := time.Now().AddDate(0, -1, -15)
-		if !crawledTimestamp.Before(oneAndHalfMonthsAgo) {
+		if crawledTimestamp.After(oneAndHalfMonthsAgo) {
 			// log.Debug("Page has been crawled recently", "URL", urlData.URL)
 			return
 		}
@@ -99,6 +56,15 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		log.Error("Failed to extract base URL", "Error", err)
 		return
 	}
+
+	// If you are confused this gets the last time a host has been crawled if a specefic delay hasent passed we cancel the request and add the url data to the frontier
+	// to be crawled later
+	if hostLastCrawledTimestamp, exists := hostLastCrawledMap.Get(host); exists && hostLastCrawledTimestamp.After(time.Now().Add(-hostCrawlDelay)) {
+		log.Debug("Host delay still hasent completed")
+		frontier.Enqueue(urlData)
+		return
+	}
+
 	// for specefic websites crawling
 	// if _, exists := allowedHosts[host]; !exists {
 	// 	return
@@ -158,7 +124,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 
 	// Extract page-text
 	pageText := parsers.ExtractPageText(parsedHtml, true)
-	pageHash := hashSHA256(pageText)
+	pageHash := common.HashSHA256(pageText)
 
 	hashExists, err := db.CheckPageHash(pageHash)
 	if err != nil {
@@ -268,6 +234,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *SafeB
 		return
 	}
 
+	hostLastCrawledMap.Set(host, time.Now())
 	crawledURLSMap.Set(urlData.URL, true)
 	log.Info("Done Crawling", "URL", urlData.URL)
 }
@@ -279,7 +246,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "fouad1977", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
 		log.Fatal("Failed to connect to PostgreSQL:", err)
 	}
@@ -292,8 +259,8 @@ func main() {
 	}
 
 	frontier := &common.Queue{}
-	crawledURLSMap := &SafeBoolMap{
-		m: make(map[string]bool),
+	crawledURLSMap := &common.SafeBoolMap{
+		M: make(map[string]bool),
 	}
 
 	robotsMap, err := jsonData.LoadRobotsMap()
@@ -302,8 +269,12 @@ func main() {
 		return
 	}
 
-	safeRobotsMap := &SafeStringMap{
-		m: robotsMap,
+	safeRobotsMap := &common.SafeStringMap{
+		M: robotsMap,
+	}
+
+	hostLastCrawledMap := &common.SafeTimestampMap{
+		M: make(map[string]time.Time),
 	}
 
 	for _, url := range seedList {
@@ -325,7 +296,7 @@ func main() {
 		wg.Add(urlsDataLength)
 
 		for _, urlData := range urlsData {
-			go crawl(frontier, urlData, crawledURLSMap, safeRobotsMap, &wg)
+			go crawl(frontier, urlData, crawledURLSMap, safeRobotsMap, hostLastCrawledMap, &wg)
 		}
 
 		wg.Wait()
