@@ -5,11 +5,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/temoto/robotstxt"
 	"golang.org/x/net/html"
 )
 
-func ExtractBaseURL(link string) (string, string, error) {
+func ExtractURLData(link string) (string, string, error) {
 	u, err := url.Parse(link)
 	if err != nil {
 		return "", "", err
@@ -76,7 +75,7 @@ func ExtractMetaData(n *html.Node) common.MetaData {
 					case "href":
 						href = a.Val
 
-						if (rel == "icon" || rel == "icon shortcut") && metaData.IconLink == "" {
+						if (rel == "icon" || rel == "icon shortcut" || rel == "shortcut icon") && metaData.IconLink == "" {
 							metaData.IconLink = href
 						}
 					}
@@ -128,21 +127,4 @@ func ExtractURLS(n *html.Node) []string {
 		urls = append(urls, ExtractURLS(c)...)
 	}
 	return urls
-}
-
-func IsUserAgentAllowed(robotsContent string, userAgent string, url string) (bool, error) {
-	robots, err := robotstxt.FromBytes([]byte(robotsContent))
-	if err != nil {
-		return false, err
-	}
-
-	// Find the most specific group for the user agent
-	group := robots.FindGroup(userAgent)
-	if group == nil {
-		group = robots.FindGroup("*")
-	}
-
-	// Check the Allow/Disallow rules
-	allowed := group.Test(url)
-	return allowed, nil
 }

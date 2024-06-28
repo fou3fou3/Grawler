@@ -34,10 +34,10 @@ func ClosePostgres() {
 // InsertCrawledPage inserts a new page into the crawled_pages table
 func InsertCrawledPage(crawledPage *common.CrawledPage) error {
 	_, err := db.Exec(`
-        INSERT INTO crawled_pages (url, content, title, parent_url, timestamp, content_hash, host, icon_link, site_name, description)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO crawled_pages (url, content, title, parent_url, timestamp, content_hash, host, description)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, crawledPage.URL, crawledPage.PageText, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash, crawledPage.Host,
-		crawledPage.MetaData.IconLink, crawledPage.MetaData.SiteName, crawledPage.MetaData.Description)
+		crawledPage.MetaData.Description)
 	return err
 }
 
@@ -117,6 +117,31 @@ func CheckPageHash(hash string) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+func GetRobots(host string) (string, bool, error) {
+	var robots string
+	err := db.QueryRow(`
+            SELECT robots
+            FROM host_shared 
+            WHERE host = $1
+    `, host).Scan(&robots)
+
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, err
+	}
+
+	return robots, true, nil
+}
+
+func InsertHost(hostShared common.HostShared) error {
+	_, err := db.Exec(`
+        INSERT INTO host_shared (host, robots, site_name, icon_link, timestamp)
+        VALUES ($1, $2, $3, $4, $5)
+    `, hostShared.Host, hostShared.Robots, hostShared.SiteName, hostShared.IconLink, time.Now())
+	return err
 }
 
 // // GetPagesByParent finds all pages with a given parent URL

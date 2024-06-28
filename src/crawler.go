@@ -15,21 +15,22 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/jimsmart/grobotstxt"
 
 	"golang.org/x/net/html"
 )
 
 const workers int16 = 5
 const respectRobots bool = true
-const userAgent string = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0"
+const userAgent string = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
-const hostCrawlDelay time.Duration = 10000 * time.Millisecond
+const hostCrawlDelay time.Duration = 1000 * time.Millisecond
 
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}
 
-func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *common.SafeBoolMap, robotsMap *common.SafeStringMap, hostLastCrawledMap *common.SafeTimestampMap,
+func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *common.SafeBoolMap, hostLastCrawledMap *common.SafeTimestampMap,
 	wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -51,7 +52,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		}
 	}
 
-	scheme, host, err := parsers.ExtractBaseURL(urlData.URL)
+	scheme, host, err := parsers.ExtractURLData(urlData.URL)
 	if err != nil {
 		log.Error("Failed to extract base URL", "Error", err)
 		return
@@ -72,33 +73,25 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	baseUrl := fmt.Sprintf("%s://%s", scheme, host)
 
-	if respectRobots {
-		var robots string
-		var exists bool
+	robots, hostSaved, err := db.GetRobots(host)
+	if err != nil {
+		log.Error("Error checking robots/host row existance", "Error", err)
+	}
 
-		robots, exists = robotsMap.Get(baseUrl)
-		if exists {
-			// log.Debug("Found robots info", "host", baseUrl)
-		} else {
-			robots, err := httpReqs.RobotsRequest(baseUrl)
-			if err != nil {
-				log.Error("Error fetching robots.txt", "host", baseUrl, "Error", err)
-			}
-
-			robotsMap.Set(baseUrl, robots)
-			// log.Debug("Fetched robots.txt", "host", baseUrl)
-		}
-
-		robotsResult, err := parsers.IsUserAgentAllowed(robots, userAgent, urlData.URL)
+	if hostSaved {
+		// log.Debug("Found robots info", "host", baseUrl)
+	} else {
+		robots, err = httpReqs.RobotsRequest(baseUrl)
 		if err != nil {
-			log.Error("Error checking user agent", "Error", err)
-			return
+			log.Error("Error fetching robots.txt", "host", baseUrl, "Error", err)
 		}
 
-		if !robotsResult {
-			log.Debug("Not allowed by robots", "URL", urlData.URL)
-			return
-		}
+		// log.Debug("Fetched robots.txt", "host", baseUrl)
+	}
+
+	if !grobotstxt.AgentAllowed(robots, userAgent, urlData.URL) {
+		log.Debug("User agent not allowed by robots.txt", "URL", urlData.URL)
+		return
 	}
 
 	log.Info("Crawling", "URL", urlData.URL)
@@ -147,10 +140,24 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		metaData.SiteName = host
 	}
 
-	// @TODO icon link should be per host
 	if metaData.IconLink != "" {
 		if metaData.IconLink[0] == '/' {
 			metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
+		}
+	}
+
+	if !hostSaved {
+		hostShared := common.HostShared{
+			Host:     host,
+			Robots:   robots,
+			IconLink: metaData.IconLink,
+			SiteName: metaData.SiteName,
+		}
+
+		err := db.InsertHost(hostShared)
+		if err != nil {
+			log.Error("Error inserting host shared data", "Error", err, "Host", host)
+			return
 		}
 	}
 
@@ -204,18 +211,15 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	if pageExists {
 		err = db.UpdatePage(page)
+		// Removing all page words before updating
+		db.DeleteWords(urlData.URL)
 	} else {
 		err = db.InsertCrawledPage(page)
 	}
 
 	if err != nil {
-		log.Error("Error inserting/updating page:", "Error", err)
+		log.Error("Error inserting/updating page:", "Error", err, "URL", urlData.URL, "Parent URL", urlData.ParentURL)
 		return
-	}
-
-	// consider removing all page words before updating
-	if pageExists {
-		db.DeleteWords(urlData.URL)
 	}
 
 	re := regexp.MustCompile(`\b\w+\b`)
@@ -246,7 +250,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "fouad1977", dbName)
 	if err != nil {
 		log.Fatal("Failed to connect to PostgreSQL:", err)
 	}
@@ -255,22 +259,12 @@ func main() {
 	seedList, err := jsonData.LoadSeedList()
 	if err != nil {
 		log.Fatal("Error loading seed list:", err)
-		return
+
 	}
 
 	frontier := &common.Queue{}
 	crawledURLSMap := &common.SafeBoolMap{
 		M: make(map[string]bool),
-	}
-
-	robotsMap, err := jsonData.LoadRobotsMap()
-	if err != nil {
-		log.Fatal("Error loading the robots map:", err)
-		return
-	}
-
-	safeRobotsMap := &common.SafeStringMap{
-		M: robotsMap,
 	}
 
 	hostLastCrawledMap := &common.SafeTimestampMap{
@@ -296,12 +290,10 @@ func main() {
 		wg.Add(urlsDataLength)
 
 		for _, urlData := range urlsData {
-			go crawl(frontier, urlData, crawledURLSMap, safeRobotsMap, hostLastCrawledMap, &wg)
+			go crawl(frontier, urlData, crawledURLSMap, hostLastCrawledMap, &wg)
 		}
 
 		wg.Wait()
-
-		jsonData.DumpRobots(robotsMap)
 
 		// elapsed := time.Since(start)
 

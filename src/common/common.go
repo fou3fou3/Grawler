@@ -39,6 +39,13 @@ type CrawledPage struct {
 	TimeCrawled time.Time
 }
 
+type HostShared struct {
+	Host     string
+	Robots   string
+	SiteName string
+	IconLink string
+}
+
 // string safe map
 
 type SafeStringMap struct {
