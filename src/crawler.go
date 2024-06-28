@@ -20,12 +20,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-const workers int16 = 5
+const workers int16 = 3
 const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
-const hostCrawlDelay time.Duration = 1000 * time.Millisecond
+const hostCrawlDelay time.Duration = 400 * time.Millisecond
 
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}

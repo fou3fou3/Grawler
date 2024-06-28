@@ -1,6 +1,7 @@
 package httpReqs
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,11 @@ func RobotsRequest(baseUrl string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	if resp.StatusCode > 399 {
+		return "", errors.New("Unvalid response code")
+	}
+
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
