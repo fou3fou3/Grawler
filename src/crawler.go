@@ -36,13 +36,13 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	defer wg.Done()
 
 	if crawledURLSMap.Get(urlData.URL) {
-		log.Debug("Has been crawled", "URL", urlData.URL)
+		log.Debug("has been crawled", "URL", urlData.URL)
 		return
 	}
 
 	pageExists, crawledTimestamp, err := db.CheckPageExistance(urlData.URL)
 	if err != nil {
-		log.Error("Error while checking page existance", "error", err)
+		log.Error("error while checking page existance", "error", err)
 	}
 
 	if pageExists {
@@ -55,7 +55,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	scheme, host, err := parsers.ExtractURLData(urlData.URL)
 	if err != nil {
-		log.Error("Failed to extract base URL", "Error", err)
+		log.Error("failed to extract base URL", "error", err)
 		return
 	}
 
@@ -83,7 +83,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	robots, hostSaved, err := db.GetRobots(host)
 	if err != nil {
-		log.Error("Error checking robots/host row existance", "Error", err)
+		log.Error("error checking robots/host row existance", "error", err)
 	}
 
 	if hostSaved {
@@ -91,14 +91,14 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	} else {
 		robots, err = httpReqs.RobotsRequest(baseUrl)
 		if err != nil {
-			log.Error("Error fetching robots.txt", "host", baseUrl, "Error", err)
+			log.Error("error fetching robots.txt", "host", baseUrl, "error", err)
 		}
 
 		// log.Debug("Fetched robots.txt", "host", baseUrl)
 	}
 
 	if !grobotstxt.AgentAllowed(robots, userAgent, urlData.URL) {
-		log.Debug("User agent not allowed by robots.txt", "URL", urlData.URL)
+		log.Debug("user agent not allowed by robots.txt", "URL", urlData.URL)
 		return
 	}
 
@@ -109,7 +109,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |____| | \ \  / ____ \  /\  /  | |____ _| |_| |\  | |__| |
 	//  \_____|_|  \_\/_/    \_\/  \/   |______|_____|_| \_|\_____|
 
-	log.Info("Crawling", "URL", urlData.URL)
+	log.Info("crawling", "URL", urlData.URL)
 
 	resp, err := httpReqs.CrawlRequest(urlData.URL)
 	if err != nil {
@@ -118,7 +118,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	}
 
 	if resp.StatusCode > 399 {
-		log.Error("Request Error", "status-code", resp.StatusCode, "URL", urlData.URL)
+		log.Error("request error", "status-code", resp.StatusCode, "URL", urlData.URL)
 		return
 	}
 
@@ -133,7 +133,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	parsedHtml, err := html.Parse(resp.Body)
 	if err != nil {
-		log.Error("Parse HTML failure", "Error", err)
+		log.Error("parse HTML failure", "error", err)
 		return
 	}
 
@@ -143,7 +143,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	hashExists, err := db.CheckPageHash(pageHash)
 	if err != nil {
-		log.Error("Failed to check page hash", "Error", err)
+		log.Error("failed to check page hash", "error", err)
 		return
 	}
 
@@ -161,7 +161,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// |_|    |_|  \_\\____/|_| \_|  |_|  |_____|______|_|  \_\ |_|     \____/|_____/|_|  |_|_____|_| \_|\_____|
 
 	subURLS := parsers.ExtractURLS(parsedHtml)
-	log.Debug("Extracted URLS", "Number of URLS", len(subURLS), "URL", urlData.URL)
+	log.Debug("extracted URLS", "number of URLS", len(subURLS), "URL", urlData.URL)
 
 	for _, url := range subURLS {
 		if url != "" {
@@ -173,7 +173,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 			url, err = parsers.ConvertUrlToString(url)
 			if err != nil {
-				log.Error("URL to string failure", "Error", err)
+				log.Error("URL to string failure", "error", err)
 				return
 			}
 
@@ -236,7 +236,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 		err := db.InsertHost(hostShared)
 		if err != nil {
-			log.Error("Error inserting host shared data", "Error", err, "Host", host)
+			log.Error("error inserting host shared data", "error", err, "host", host)
 			return
 		}
 	}
@@ -267,7 +267,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	}
 
 	if err != nil {
-		log.Error("Error inserting/updating page:", "Error", err, "URL", urlData.URL, "Parent URL", urlData.ParentURL)
+		log.Error("error inserting/updating page:", "error", err, "URL", urlData.URL, "parent URL", urlData.ParentURL)
 		return
 	}
 
@@ -290,13 +290,13 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	err = db.InsertWords(wordsFrequencies, urlData.URL)
 	if err != nil {
-		log.Error("Error inserting words:", "Error", err)
+		log.Error("error inserting words:", "error", err)
 		return
 	}
 
 	hostLastCrawledMap.Set(host, time.Now())
 	crawledURLSMap.Set(urlData.URL, true)
-	log.Info("Done Crawling", "URL", urlData.URL)
+	log.Info("done crawling", "URL", urlData.URL)
 }
 
 func main() {
@@ -308,13 +308,13 @@ func main() {
 
 	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
-		log.Fatal("Failed to connect to PostgreSQL:", err)
+		log.Fatal("failed to connect to PostgreSQL:", err)
 	}
 	defer db.ClosePostgres()
 
 	seedList, err := jsonData.LoadSeedList()
 	if err != nil {
-		log.Fatal("Error loading seed list:", err)
+		log.Fatal("error loading seed list:", err)
 
 	}
 
