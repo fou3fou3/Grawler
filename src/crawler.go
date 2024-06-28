@@ -250,7 +250,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "fouad1977", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
 		log.Fatal("Failed to connect to PostgreSQL:", err)
 	}
