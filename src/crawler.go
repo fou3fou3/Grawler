@@ -27,6 +27,7 @@ const respectRobots bool = true
 const userAgent string = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
+const titleLengthFromDocument int = 35
 const hostCrawlDelay time.Duration = 400 * time.Millisecond
 
 var allowedSchemes = map[string]bool{"http": true, "https": true}
@@ -179,7 +180,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 
 	// Return if page has an equivilant or the content hasen't been updated since last time crawled
 	if hashExists {
-		// log.Warn("Hash already exists", "hash", pageHash, "current page url", urlData.URL)
+		log.Warn("Hash already exists", "hash", pageHash, "current page url", urlData.URL)
 		return
 	}
 
@@ -189,7 +190,6 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// |  __| |  _  /| |  | | . ` |  | |    | | |  __| |  _  /  |  ___/| |  | |\___ \|  __  | | | | . ` | | |_ |
 	// | |    | | \ \| |__| | |\  |  | |   _| |_| |____| | \ \  | |    | |__| |____) | |  | |_| |_| |\  | |__| |
 	// |_|    |_|  \_\\____/|_| \_|  |_|  |_____|______|_|  \_\ |_|     \____/|_____/|_|  |_|_____|_| \_|\_____|
-
 	if contentType == "text/html" {
 		subURLS := parsers.ExtractURLS(parsedHtml)
 		log.Debug("extracted URLS", "number of URLS", len(subURLS), "URL", urlData.URL)
@@ -240,6 +240,10 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	switch contentType {
 	case "text/html":
 		metaData = parsers.ExtractMetaData(parsedHtml)
+		if metaData.Title == "" {
+			metaData.Title = pageText[:min(titleLengthFromDocument, len(pageText))]
+		}
+
 		if metaData.Description == "" {
 			metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
 		}
@@ -258,7 +262,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		metaData = common.MetaData{
 			IconLink:    "",
 			SiteName:    host,
-			Title:       "Text document",
+			Title:       pageText[:min(titleLengthFromDocument, len(pageText))],
 			Description: pageText[:min(descriptionLengthFromDocument, len(pageText))],
 		}
 	}
@@ -349,7 +353,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "passowrd", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
 		log.Fatal("failed to connect to PostgreSQL:", err)
 	}

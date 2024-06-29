@@ -26,7 +26,7 @@ func RobotsRequest(baseUrl string) (string, error) {
 	}
 
 	if resp.StatusCode > 399 {
-		return "", errors.New("Unvalid response code")
+		return "", errors.New(fmt.Sprintf("Unvalid response code %d", resp.StatusCode))
 	}
 
 	defer resp.Body.Close()
