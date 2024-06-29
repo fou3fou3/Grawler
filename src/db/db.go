@@ -131,21 +131,23 @@ func CheckPageHash(hash string) (bool, error) {
 	return exists, nil
 }
 
-func GetRobots(host string) (string, bool, error) {
+func GetRobots(host string) (string, time.Time, bool, error) {
 	var robots string
+	var timestamp time.Time
+
 	err := db.QueryRow(`
-            SELECT robots
+            SELECT (robots, timestamp)
             FROM host_shared 
             WHERE host = $1
-    `, host).Scan(&robots)
+    `, host).Scan(&robots, &timestamp)
 
 	if err == sql.ErrNoRows {
-		return "", false, nil
+		return "", time.Time{}, false, nil
 	} else if err != nil {
-		return "", false, err
+		return "", time.Time{}, false, err
 	}
 
-	return robots, true, nil
+	return robots, timestamp, true, nil
 }
 
 func InsertHost(hostShared common.HostShared) error {

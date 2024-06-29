@@ -91,12 +91,20 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | | \ \| |__| | |_) | |__| | | |  ____) |
 	// |_|  \_\\____/|____/ \____/  |_| |_____/
 
-	robots, hostSaved, err := db.GetRobots(host)
+	robots, robotsRequestTimestamp, hostSaved, err := db.GetRobots(host)
 	if err != nil {
 		log.Error("error checking robots/host row existance", "error", err)
 	}
 
 	if hostSaved {
+		oneAndHalfMonthsAgo := time.Now().AddDate(0, -1, -15)
+		if robotsRequestTimestamp.Before(oneAndHalfMonthsAgo) {
+			hostSaved = false
+			robots, err = httpReqs.RobotsRequest(baseUrl)
+			if err != nil {
+				log.Error("error fetching for updating robots.txt", "host", baseUrl, "error", err)
+			}
+		}
 		// log.Debug("Found robots info", "host", baseUrl)
 	} else {
 		robots, err = httpReqs.RobotsRequest(baseUrl)
