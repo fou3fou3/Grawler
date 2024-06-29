@@ -6,6 +6,7 @@ import (
 	"crawler/src/httpReqs"
 	"crawler/src/jsonData"
 	"crawler/src/parsers"
+	"io"
 
 	"fmt"
 	"os"
@@ -27,6 +28,8 @@ const userAgent string = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
 const hostCrawlDelay time.Duration = 400 * time.Millisecond
+
+var allowedSchemes = map[string]bool{"http": true, "https": true}
 
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}
@@ -56,6 +59,11 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	scheme, host, err := parsers.ExtractURLData(urlData.URL)
 	if err != nil {
 		log.Error("failed to extract base URL", "error", err)
+		return
+	}
+
+	if _, exists := allowedSchemes[host]; exists {
+		log.Debug("scheme not allowed", "scheme", scheme)
 		return
 	}
 
@@ -122,7 +130,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		return
 	}
 
-	defer resp.Body.Close()
+	contentType := strings.Split(resp.Header.Get("content-type"), ";")[0]
 
 	//  _____        _____   _____ _____ _   _  _____
 	// |  __ \ /\   |  __ \ / ____|_   _| \ | |/ ____|
@@ -131,14 +139,36 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |  / ____ \| | \ \ ____) |_| |_| |\  | |__| |
 	// |_| /_/    \_\_|  \_\_____/|_____|_| \_|\_____|
 
-	parsedHtml, err := html.Parse(resp.Body)
-	if err != nil {
-		log.Error("parse HTML failure", "error", err)
+	defer resp.Body.Close()
+
+	var pageText string
+	var parsedHtml *html.Node
+
+	switch contentType {
+	case "text/html":
+		parsedHtml, err = html.Parse(resp.Body)
+		if err != nil {
+			log.Error("parse HTML failure", "error", err)
+			return
+		}
+
+		// Extract page-text
+		pageText = parsers.ExtractPageText(parsedHtml, true)
+
+	case "text/plain":
+		pageBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Error("error reading bytes of reponse body in text/plain type", "error", err)
+			return
+		}
+
+		pageText = string(pageBytes)
+
+	default:
+		log.Debug("content type is not supported", "content-type", contentType)
 		return
 	}
 
-	// Extract page-text
-	pageText := parsers.ExtractPageText(parsedHtml, true)
 	pageHash := common.HashSHA256(pageText)
 
 	hashExists, err := db.CheckPageHash(pageHash)
@@ -160,40 +190,42 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |    | | \ \| |__| | |\  |  | |   _| |_| |____| | \ \  | |    | |__| |____) | |  | |_| |_| |\  | |__| |
 	// |_|    |_|  \_\\____/|_| \_|  |_|  |_____|______|_|  \_\ |_|     \____/|_____/|_|  |_|_____|_| \_|\_____|
 
-	subURLS := parsers.ExtractURLS(parsedHtml)
-	log.Debug("extracted URLS", "number of URLS", len(subURLS), "URL", urlData.URL)
+	if contentType == "text/html" {
+		subURLS := parsers.ExtractURLS(parsedHtml)
+		log.Debug("extracted URLS", "number of URLS", len(subURLS), "URL", urlData.URL)
 
-	for _, url := range subURLS {
-		if url != "" {
-			if url[0] == '#' {
-				// subURLS[i] = ""
-				// commented because we are not currently pushing suburls to the db
-				continue
+		for _, url := range subURLS {
+			if url != "" {
+				if url[0] == '#' {
+					// subURLS[i] = ""
+					// commented because we are not currently pushing suburls to the db
+					continue
+				}
+
+				url, err = parsers.ConvertUrlToString(url)
+				if err != nil {
+					log.Error("URL to string failure", "error", err)
+					return
+				}
+
+				// CHECK IF THIS WORKS @TODO
+				if url[0] == '/' {
+					url = fmt.Sprintf("%s%s", baseUrl, url)
+					// subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
+					// commented because we are not currently pushing suburls to the db
+				}
+
+				subUrlData := common.UrlData{
+					URL:       url,
+					ParentURL: urlData.URL,
+				}
+
+				frontier.Enqueue(subUrlData)
+
+				// Uncomment this if you want to see all extracted urls from a page .
+				// log.Infof("Extracted: %v from %v .", url, urlData.URL)
+
 			}
-
-			url, err = parsers.ConvertUrlToString(url)
-			if err != nil {
-				log.Error("URL to string failure", "error", err)
-				return
-			}
-
-			// CHECK IF THIS WORKS @TODO
-			if url[0] == '/' {
-				url = fmt.Sprintf("%s%s", baseUrl, url)
-				// subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
-				// commented because we are not currently pushing suburls to the db
-			}
-
-			subUrlData := common.UrlData{
-				URL:       url,
-				ParentURL: urlData.URL,
-			}
-
-			frontier.Enqueue(subUrlData)
-
-			// Uncomment this if you want to see all extracted urls from a page .
-			// log.Infof("Extracted: %v from %v .", url, urlData.URL)
-
 		}
 	}
 
@@ -203,22 +235,33 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |\/| |  __|    | | / /\ \ | |  | |/ /\ \ | | / /\ \
 	// | |  | | |____   | |/ ____ \| |__| / ____ \| |/ ____ \
 	// |_|  |_|______|  |_/_/    \_\_____/_/    \_\_/_/    \_\
+	var metaData common.MetaData
 
-	metaData := parsers.ExtractMetaData(parsedHtml)
-	if metaData.Description == "" {
-		metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
-	}
+	switch contentType {
+	case "text/html":
+		metaData = parsers.ExtractMetaData(parsedHtml)
+		if metaData.Description == "" {
+			metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
+		}
 
-	if metaData.SiteName == "" {
-		metaData.SiteName = host
-	}
+		if metaData.SiteName == "" {
+			metaData.SiteName = host
+		}
 
-	if metaData.IconLink != "" {
-		if metaData.IconLink[0] == '/' {
-			metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
+		if metaData.IconLink != "" {
+			if metaData.IconLink[0] == '/' {
+				metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
+			}
+		}
+
+	default:
+		metaData = common.MetaData{
+			IconLink:    "",
+			SiteName:    host,
+			Title:       "Text document",
+			Description: pageText[:min(descriptionLengthFromDocument, len(pageText))],
 		}
 	}
-
 	//  _    _  ____   _____ _______    _____ _    _          _____  ______ _____    _____ _   _  _____ ______ _____ _______
 	// | |  | |/ __ \ / ____|__   __|  / ____| |  | |   /\   |  __ \|  ____|  __ \  |_   _| \ | |/ ____|  ____|  __ \__   __|
 	// | |__| | |  | | (___    | |    | (___ | |__| |  /  \  | |__) | |__  | |  | |   | | |  \| | (___ | |__  | |__) | | |
@@ -306,7 +349,7 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
+	err := db.InitPostgres("localhost", "5432", "postgres", "passowrd", dbName)
 	if err != nil {
 		log.Fatal("failed to connect to PostgreSQL:", err)
 	}
