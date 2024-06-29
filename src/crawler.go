@@ -325,8 +325,8 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |    |  _  /   / /\ \ \/  \/ / | |    |  __| | |  | | |  ___/ /\ \| | |_ |  __|     | | | . ` |\___ \|  __| |  _  /  | |
 	// | |____| | \ \  / ____ \  /\  /  | |____| |____| |__| | | |  / ____ \ |__| | |____   _| |_| |\  |____) | |____| | \ \  | |
 	//  \_____|_|  \_\/_/    \_\/  \/   |______|______|_____/  |_| /_/    \_\_____|______| |_____|_| \_|_____/|______|_|  \_\ |_|
-	documentPath := fmt.Sprintf("%s%s%s", hostFolderPath, path, documentExtension)
-
+	documentPath := fmt.Sprintf("%s/%s%s", hostFolderPath, path, documentExtension)
+	log.Warn(documentPath)
 	page := &common.CrawledPage{
 		URL:          urlData.URL,
 		PageText:     pageText,

@@ -136,7 +136,7 @@ func GetRobots(host string) (string, time.Time, bool, error) {
 	var timestamp time.Time
 
 	err := db.QueryRow(`
-            SELECT (robots, timestamp)
+            SELECT robots, timestamp
             FROM host_shared 
             WHERE host = $1
     `, host).Scan(&robots, &timestamp)
