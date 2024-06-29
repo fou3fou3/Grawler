@@ -1,12 +1,15 @@
 package common
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/ledongthuc/pdf"
 )
 
 const DocumentsFolderName string = "documents/"
@@ -42,7 +45,6 @@ type CrawledPage struct {
 
 	TimeCrawled time.Time
 
-	ContentType  string
 	DocumentPath string
 }
 
@@ -164,4 +166,27 @@ func CreateFolder(folderName string) error {
 		}
 	}
 	return nil
+}
+
+func ReadPdfFromBytes(b []byte) (string, error) {
+	r, err := pdf.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		return "", err
+	}
+
+	var content string
+	totalPage := r.NumPage()
+
+	for pageIndex := 1; pageIndex <= totalPage; pageIndex++ {
+		p := r.Page(pageIndex)
+		if p.V.IsNull() {
+			continue
+		}
+		text, err := p.GetPlainText(nil)
+		if err != nil {
+			return "", err
+		}
+		content += text
+	}
+	return content, nil
 }

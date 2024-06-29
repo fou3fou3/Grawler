@@ -37,7 +37,8 @@ func InsertCrawledPage(crawledPage *common.CrawledPage) error {
 	_, err := db.Exec(`
         INSERT INTO crawled_pages (url, content_path, title, parent_url, timestamp, content_hash, host, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, crawledPage.URL, crawledPage.DocumentPath, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash, crawledPage.Host,
+    `, crawledPage.URL, crawledPage.DocumentPath, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash,
+		crawledPage.Host,
 		crawledPage.MetaData.Description)
 	if err != nil {
 		return err

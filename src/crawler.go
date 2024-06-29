@@ -29,6 +29,7 @@ const dbName string = "web-crawler"
 const descriptionLengthFromDocument int = 160
 const titleLengthFromDocument int = 35
 const hostCrawlDelay time.Duration = 400 * time.Millisecond
+const documentExtension string = ".txt"
 
 var allowedSchemes = map[string]bool{"http": true, "https": true}
 
@@ -156,19 +157,33 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		// Extract page-text
 		pageText = parsers.ExtractPageText(parsedHtml, true)
 
-	case "text/plain":
+	case "text/plain", "application/pdf":
 		pageBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			log.Error("error reading bytes of reponse body in text/plain type", "error", err)
+			log.Error("error reading bytes of reponse body", "error", err)
 			return
 		}
 
-		pageText = string(pageBytes)
+		switch contentType {
+		case "application/pdf":
+			pageText, err = common.ReadPdfFromBytes(pageBytes)
+			if err != nil {
+				log.Error("error reading pdf from bytes", "error", err)
+				return
+			}
+
+		case "text/plain":
+			pageText = string(pageBytes)
+		}
 
 	default:
 		log.Debug("content type is not supported", "content-type", contentType)
 		return
 	}
+
+	pageText = strings.ReplaceAll(pageText, "\n", "")
+	pageText = strings.ReplaceAll(pageText, "\r", "")
+	pageText = strings.Trim(pageText, " ")
 
 	pageHash := common.HashSHA256(pageText)
 
@@ -302,7 +317,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |    |  _  /   / /\ \ \/  \/ / | |    |  __| | |  | | |  ___/ /\ \| | |_ |  __|     | | | . ` |\___ \|  __| |  _  /  | |
 	// | |____| | \ \  / ____ \  /\  /  | |____| |____| |__| | | |  / ____ \ |__| | |____   _| |_| |\  |____) | |____| | \ \  | |
 	//  \_____|_|  \_\/_/    \_\/  \/   |______|______|_____/  |_| /_/    \_\_____|______| |_____|_| \_|_____/|______|_|  \_\ |_|
-	documentPath := fmt.Sprintf("%s%s", hostFolderPath, path)
+	documentPath := fmt.Sprintf("%s%s%s", hostFolderPath, path, documentExtension)
 
 	page := &common.CrawledPage{
 		URL:          urlData.URL,
@@ -312,7 +327,6 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		PageHash:     pageHash,
 		MetaData:     metaData,
 		Host:         host,
-		ContentType:  contentType,
 		DocumentPath: documentPath,
 	}
 
