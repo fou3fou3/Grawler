@@ -5,6 +5,7 @@ import (
 	"crawler/src/common"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	// "time"
@@ -34,10 +35,15 @@ func ClosePostgres() {
 // InsertCrawledPage inserts a new page into the crawled_pages table
 func InsertCrawledPage(crawledPage *common.CrawledPage) error {
 	_, err := db.Exec(`
-        INSERT INTO crawled_pages (url, content, title, parent_url, timestamp, content_hash, host, description)
+        INSERT INTO crawled_pages (url, content_path, title, parent_url, timestamp, content_hash, host, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, crawledPage.URL, crawledPage.PageText, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash, crawledPage.Host,
+    `, crawledPage.URL, crawledPage.DocumentPath, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash, crawledPage.Host,
 		crawledPage.MetaData.Description)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(crawledPage.DocumentPath, []byte(crawledPage.PageText), 0644)
 	return err
 }
 
@@ -45,10 +51,15 @@ func InsertCrawledPage(crawledPage *common.CrawledPage) error {
 func UpdatePage(crawledPage *common.CrawledPage) error {
 	_, err := db.Exec(`
         UPDATE crawled_pages
-        SET content = $1, title = $2, parent_url = $3, timestamp = $4, content_hash = $5, description = $6
-        WHERE url = $7
-    `, crawledPage.PageText, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash,
+        SET title = $1, parent_url = $2, timestamp = $3, content_hash = $4, description = $5
+        WHERE url = $6
+    `, crawledPage.MetaData.Title, crawledPage.ParentURL, crawledPage.TimeCrawled, crawledPage.PageHash,
 		crawledPage.MetaData.Description, crawledPage.URL)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(crawledPage.DocumentPath, []byte(crawledPage.PageText), 0644)
 	return err
 }
 

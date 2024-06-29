@@ -3,9 +3,13 @@ package common
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"os"
 	"sync"
 	"time"
 )
+
+const DocumentsFolderName string = "documents/"
 
 type RobotsItem struct {
 	BaseUrl string `json:"base_url"`
@@ -37,6 +41,9 @@ type CrawledPage struct {
 	PageHash string
 
 	TimeCrawled time.Time
+
+	ContentType  string
+	DocumentPath string
 }
 
 type HostShared struct {
@@ -147,4 +154,14 @@ func HashSHA256(text string) string {
 	hasher.Write([]byte(text))
 	hashBytes := hasher.Sum(nil)
 	return hex.EncodeToString(hashBytes)
+}
+
+func CreateFolder(folderName string) error {
+	if _, err := os.Stat(folderName); errors.Is(err, os.ErrNotExist) {
+		err := os.Mkdir(folderName, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

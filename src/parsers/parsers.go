@@ -8,12 +8,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-func ExtractURLData(link string) (string, string, error) {
+func ExtractURLData(link string) (string, string, string, error) {
 	u, err := url.Parse(link)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return u.Scheme, u.Host, nil
+	return u.Scheme, u.Host, u.Path, nil
 }
 
 func ConvertUrlToString(encodedUrl string) (string, error) {

@@ -57,7 +57,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 		}
 	}
 
-	scheme, host, err := parsers.ExtractURLData(urlData.URL)
+	scheme, host, path, err := parsers.ExtractURLData(urlData.URL)
 	if err != nil {
 		log.Error("failed to extract base URL", "error", err)
 		return
@@ -272,6 +272,7 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// |  __  | |  | |\___ \   | |     \___ \|  __  | / /\ \ |  _  /|  __| | |  | |   | | | . ` |\___ \|  __| |  _  /  | |
 	// | |  | | |__| |____) |  | |     ____) | |  | |/ ____ \| | \ \| |____| |__| |  _| |_| |\  |____) | |____| | \ \  | |
 	// |_|  |_|\____/|_____/   |_|    |_____/|_|  |_/_/    \_\_|  \_\______|_____/  |_____|_| \_|_____/|______|_|  \_\ |_|
+	hostFolderPath := fmt.Sprintf("%s%s", common.DocumentsFolderName, strings.ReplaceAll(host, ":", "_"))
 
 	if !hostSaved {
 		hostShared := common.HostShared{
@@ -286,6 +287,13 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 			log.Error("error inserting host shared data", "error", err, "host", host)
 			return
 		}
+
+		// Create the host folder if not exists
+		err = common.CreateFolder(hostFolderPath)
+		if err != nil {
+			log.Error("Error creating host folder %s", err)
+			return
+		}
 	}
 
 	// 	 _____ _____       __          ___      ______ _____    _____        _____ ______   _____ _   _  _____ ______ _____ _______
@@ -294,15 +302,18 @@ func crawl(frontier *common.Queue, urlData common.UrlData, crawledURLSMap *commo
 	// | |    |  _  /   / /\ \ \/  \/ / | |    |  __| | |  | | |  ___/ /\ \| | |_ |  __|     | | | . ` |\___ \|  __| |  _  /  | |
 	// | |____| | \ \  / ____ \  /\  /  | |____| |____| |__| | | |  / ____ \ |__| | |____   _| |_| |\  |____) | |____| | \ \  | |
 	//  \_____|_|  \_\/_/    \_\/  \/   |______|______|_____/  |_| /_/    \_\_____|______| |_____|_| \_|_____/|______|_|  \_\ |_|
+	documentPath := fmt.Sprintf("%s/%s", hostFolderPath, path)
 
 	page := &common.CrawledPage{
-		URL:         urlData.URL,
-		PageText:    pageText,
-		ParentURL:   urlData.ParentURL,
-		TimeCrawled: time.Now(),
-		PageHash:    pageHash,
-		MetaData:    metaData,
-		Host:        host,
+		URL:          urlData.URL,
+		PageText:     pageText,
+		ParentURL:    urlData.ParentURL,
+		TimeCrawled:  time.Now(),
+		PageHash:     pageHash,
+		MetaData:     metaData,
+		Host:         host,
+		ContentType:  contentType,
+		DocumentPath: documentPath,
 	}
 
 	if pageExists {
@@ -353,7 +364,12 @@ func main() {
 	})
 	log.SetDefault(logger)
 
-	err := db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
+	err := common.CreateFolder(common.DocumentsFolderName)
+	if err != nil {
+		log.Fatal("Failed to create documents folder", "Error", err)
+	}
+
+	err = db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
 	if err != nil {
 		log.Fatal("failed to connect to PostgreSQL:", err)
 	}
