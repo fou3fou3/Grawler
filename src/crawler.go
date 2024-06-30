@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/jimsmart/grobotstxt"
+	"github.com/puzpuzpuz/xsync/v3"
 
 	"golang.org/x/net/html"
 )
@@ -36,16 +37,15 @@ var allowedSchemes = map[string]bool{"http": true, "https": true}
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}
 
-func crawlWorker(frontier *common.Queue, crawledURLSMap *common.SafeBoolMap, hostLastCrawledMap *common.SafeTimestampMap,
+func crawlWorker(frontier *xsync.MPMCQueueOf[common.UrlData], crawledURLSMap *common.SafeBoolMap, hostLastCrawledMap *common.SafeTimestampMap,
 	wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for !frontier.IsEmpty() {
+	for {
 		var urlData common.UrlData
 		start := time.Now()
 
-		urlData = frontier.Items[0]
-		frontier.Dequeue(1)
+		urlData = frontier.Dequeue()
 
 		if crawledURLSMap.Get(urlData.URL) {
 			// log.Debug("has been crawled", "URL", urlData.URL)
@@ -407,7 +407,7 @@ func main() {
 
 	}
 
-	frontier := &common.Queue{}
+	frontier := xsync.NewMPMCQueueOf[common.UrlData](100000000)
 	crawledURLSMap := &common.SafeBoolMap{
 		M: make(map[string]bool),
 	}

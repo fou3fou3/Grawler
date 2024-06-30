@@ -114,24 +114,6 @@ func (tm *SafeTimestampMap) Set(key string, value time.Time) {
 	tm.M[key] = value
 }
 
-// Queue type && functions
-
-type Queue struct {
-	Items []UrlData
-}
-
-func (q *Queue) Enqueue(data UrlData) {
-	q.Items = append(q.Items, data)
-}
-
-func (q *Queue) Dequeue(numItems int16) {
-	q.Items = q.Items[numItems:]
-}
-
-func (q *Queue) IsEmpty() bool {
-	return len(q.Items) == 0
-}
-
 func RobotsListToMap(items []RobotsItem) map[string]string {
 	result := make(map[string]string)
 	for _, item := range items {
