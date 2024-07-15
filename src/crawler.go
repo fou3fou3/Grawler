@@ -37,8 +37,31 @@ var allowedSchemes = map[string]bool{"http": true, "https": true}
 // for specefic websites crawling
 // var allowedHosts = map[string]bool{"en.wikipedia.org": true}
 
-func crawlWorker(frontier *xsync.MPMCQueueOf[common.UrlData], crawledURLSMap *common.SafeBoolMap, hostLastCrawledMap *common.SafeTimestampMap,
-	wg *sync.WaitGroup) {
+var seedList []string
+
+var frontier *xsync.MPMCQueueOf[common.UrlData]
+
+var crawledURLSMap *common.SafeBoolMap
+var hostLastCrawledMap *common.SafeTimestampMap
+
+func initializeMaps() {
+	var err error
+	seedList, err = jsonData.LoadSeedList()
+	if err != nil {
+		log.Fatal("error loading seed list:", err)
+	}
+
+	frontier = xsync.NewMPMCQueueOf[common.UrlData](100000000)
+	crawledURLSMap = &common.SafeBoolMap{
+		M: make(map[string]bool),
+	}
+
+	hostLastCrawledMap = &common.SafeTimestampMap{
+		M: make(map[string]time.Time),
+	}
+}
+
+func crawlWorker(wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
@@ -401,21 +424,6 @@ func main() {
 	}
 	defer db.ClosePostgres()
 
-	seedList, err := jsonData.LoadSeedList()
-	if err != nil {
-		log.Fatal("error loading seed list:", err)
-
-	}
-
-	frontier := xsync.NewMPMCQueueOf[common.UrlData](100000000)
-	crawledURLSMap := &common.SafeBoolMap{
-		M: make(map[string]bool),
-	}
-
-	hostLastCrawledMap := &common.SafeTimestampMap{
-		M: make(map[string]time.Time),
-	}
-
 	for _, url := range seedList {
 		urlData := common.UrlData{
 			URL:       url,
@@ -428,7 +436,7 @@ func main() {
 	wg.Add(int(numberOfWorkers))
 
 	for range numberOfWorkers {
-		go crawlWorker(frontier, crawledURLSMap, hostLastCrawledMap, &wg)
+		go crawlWorker(&wg)
 	}
 
 	wg.Wait()
