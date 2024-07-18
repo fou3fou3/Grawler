@@ -2,65 +2,17 @@ package parsers
 
 import (
 	"crawler/src/common"
-	"net/url"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
-func ExtractURLData(link string) (string, string, string, error) {
-	u, err := url.Parse(link)
-	if err != nil {
-		return "", "", "", err
-	}
-	return u.Scheme, u.Host, u.Path, nil
-}
-
-func ConvertUrlToString(encodedUrl string) (string, error) {
-	decodedURL, err := url.QueryUnescape(encodedUrl)
-	if err != nil {
-		return "", err
-	}
-
-	return decodedURL, nil
-}
-
-func ExtractPageText(n *html.Node, trimSpace bool) string {
-	switch n.Type {
-	case html.TextNode:
-		if trimSpace {
-			return strings.TrimSpace(n.Data)
-		}
-		return n.Data
-	case html.DocumentNode, html.ElementNode:
-		// DocumentNode is the root, so we want to traverse its children
-		// ElementNode is a regular tag like <p>, <div>, etc.
-
-		// Skip unwanted tags
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "script", "style", "noscript", "svg", "iframe":
-				return ""
-			}
-		}
-
-		var result strings.Builder
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			childText := ExtractPageText(c, trimSpace)
-			if childText != "" {
-				result.WriteString(childText)
-				result.WriteRune(' ')
-			}
-		}
-		return strings.TrimSpace(result.String())
-	default:
-		// Other node types like comments, doctypes, etc.
-		return ""
-	}
-}
-
-func ExtractMetaData(n *html.Node) common.MetaData {
+func HtmlMetaData(n *html.Node) common.MetaData {
 	var metaData common.MetaData
+	metaData.Description = ""
+	metaData.IconLink = ""
+	metaData.SiteName = ""
+	metaData.Title = ""
 
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
@@ -114,7 +66,7 @@ func ExtractMetaData(n *html.Node) common.MetaData {
 	return metaData
 }
 
-func ExtractURLS(n *html.Node) []string {
+func HtmlUrls(n *html.Node) []string {
 	var urls []string
 	if n.Type == html.ElementNode && n.Data == "a" {
 		for _, attr := range n.Attr {
@@ -124,7 +76,41 @@ func ExtractURLS(n *html.Node) []string {
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		urls = append(urls, ExtractURLS(c)...)
+		urls = append(urls, HtmlUrls(c)...)
 	}
 	return urls
+}
+
+func HtmlText(n *html.Node, trimSpace bool) string {
+	switch n.Type {
+	case html.TextNode:
+		if trimSpace {
+			return strings.TrimSpace(n.Data)
+		}
+		return n.Data
+	case html.DocumentNode, html.ElementNode:
+		// DocumentNode is the root, so we want to traverse its children
+		// ElementNode is a regular tag like <p>, <div>, etc.
+
+		// Skip unwanted tags
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "noscript", "svg", "iframe":
+				return ""
+			}
+		}
+
+		var result strings.Builder
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			childText := HtmlText(c, trimSpace)
+			if childText != "" {
+				result.WriteString(childText)
+				result.WriteRune(' ')
+			}
+		}
+		return strings.TrimSpace(result.String())
+	default:
+		// Other node types like comments, doctypes, etc.
+		return ""
+	}
 }
