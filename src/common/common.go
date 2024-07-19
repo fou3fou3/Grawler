@@ -52,8 +52,10 @@ type InsertDocument struct {
 }
 
 type RobotsItem struct {
-	BaseUrl string `json:"base_url"`
-	Robots  string `json:"robots"`
+	Host   string `json:"base_url"`
+	Robots string `json:"robots"`
+
+	Timestamp time.Time
 }
 
 // string safe map

@@ -60,24 +60,24 @@ func convertUrlToString(encodedUrl string) (string, error) {
 	return decodedURL, nil
 }
 
-func RobotsListToMap(items []common.RobotsItem) map[string]string {
-	result := make(map[string]string)
-	for _, item := range items {
-		result[item.BaseUrl] = item.Robots
-	}
-	return result
-}
+// func RobotsListToMap(items []common.RobotsItem) map[string]string {
+// 	result := make(map[string]string)
+// 	for _, item := range items {
+// 		result[item.BaseUrl] = item.Robots
+// 	}
+// 	return result
+// }
 
-func RobotsMapToList(robotsMap map[string]string) []common.RobotsItem {
-	items := make([]common.RobotsItem, 0, len(robotsMap))
-	for baseUrl, robots := range robotsMap {
-		items = append(items, common.RobotsItem{
-			BaseUrl: baseUrl,
-			Robots:  robots,
-		})
-	}
-	return items
-}
+// func RobotsMapToList(robotsMap map[string]string) []common.RobotsItem {
+// 	items := make([]common.RobotsItem, 0, len(robotsMap))
+// 	for baseUrl, robots := range robotsMap {
+// 		items = append(items, common.RobotsItem{
+// 			BaseUrl: baseUrl,
+// 			Robots:  robots,
+// 		})
+// 	}
+// 	return items
+// }
 
 func HashSHA256(text string) string {
 	hasher := sha256.New()

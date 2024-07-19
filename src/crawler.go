@@ -6,6 +6,7 @@ import (
 	"crawler/src/parsers"
 	"crawler/src/utils"
 	"fmt"
+	"time"
 
 	"io"
 	"net/http"
@@ -160,21 +161,31 @@ func urlAllowed(urlComponents *common.UrlComponents) bool {
 }
 
 func agentAllowed(document *common.Document) (bool, error) {
-	// robots, robotsRequestTimestamp, hostSaved, _ := db.GetRobots(document.UrlComponents.Host)
-
-	// if !(hostSaved || robotsRequestTimestamp.Before(time.Now().AddDate(0, -1, -15))) {
-	resp, err := utils.HttpRequest("GET", fmt.Sprintf("%s/robots.txt", document.BaseUrl), map[string]string{"User-Agent": userAgent})
+	robotsItem, exists, err := db.GetRobots(document.UrlComponents.Host)
 	if err != nil {
 		return false, err
 	}
 
-	defer resp.Body.Close()
-	robotsBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, err
-	}
+	var robots string
 
-	robots := string(robotsBytes)
+	if !exists || robotsItem.Timestamp.Before(time.Now().AddDate(0, -1, -15)) {
+		resp, err := utils.HttpRequest("GET", fmt.Sprintf("%s/robots.txt", document.BaseUrl), map[string]string{"User-Agent": userAgent})
+		if err != nil {
+			return false, err
+		}
+
+		defer resp.Body.Close()
+		robotsBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false, err
+		}
+
+		robots = string(robotsBytes)
+
+		db.InsertRobots(common.RobotsItem{Host: document.UrlComponents.Host, Robots: robots, Timestamp: time.Now()})
+	} else {
+		robots = robotsItem.Robots
+	}
 
 	if !grobotstxt.AgentAllowed(robots, userAgent, document.Url) {
 		return false, nil
