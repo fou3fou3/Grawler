@@ -15,7 +15,6 @@ type UrlComponents struct {
 
 type DocumentResponse struct {
 	ContentType string
-	CharSet     string
 	StatusCode  int16
 }
 
@@ -48,6 +47,8 @@ type InsertDocument struct {
 
 	Content  string
 	MetaData MetaData
+
+	Timestamp time.Time
 }
 
 type RobotsItem struct {

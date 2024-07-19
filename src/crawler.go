@@ -23,7 +23,8 @@ const userAgent = "grawler"
 
 var frontier *xsync.MPMCQueueOf[common.Document]
 
-// var crawledURLSMap *common.SafeBoolMap
+var crawledURLSMap *common.SafeBoolMap
+
 // var hostLastCrawledMap *common.SafeTimestampMap
 
 func initializeMaps() {
@@ -34,9 +35,9 @@ func initializeMaps() {
 	// }
 
 	frontier = xsync.NewMPMCQueueOf[common.Document](100000)
-	// crawledURLSMap = &common.SafeBoolMap{
-	// 	M: make(map[string]bool),
-	// }
+	crawledURLSMap = &common.SafeBoolMap{
+		M: make(map[string]bool),
+	}
 
 	// hostLastCrawledMap = &common.SafeTimestampMap{
 	// 	M: make(map[string]time.Time),
@@ -47,13 +48,13 @@ func main() {
 	utils.SetupLogger()
 	initializeMaps()
 
-	mongoClient, err := db.InitMongo()
+	err := db.InitCouchbase()
 	if err != nil {
-		log.Fatal("Failed to connect to mongodb", "err", mongoClient)
+		log.Fatal("Failed to connect to couchbase", "err", err)
 	}
 
-	document := common.Document{ParentUrl: "", Url: "https://en.wikipedia.org/wiki/Nicolaus_Copernicus"}
-	frontier.Enqueue(document)
+	baseDocument := common.Document{ParentUrl: "", Url: "https://en.wikipedia.org/wiki/Cosmic_microwave_background"}
+	frontier.Enqueue(baseDocument)
 	for {
 		crawlDocument(frontier.Dequeue())
 	}
@@ -61,6 +62,7 @@ func main() {
 
 func crawlDocument(document common.Document) {
 	log.Info("Crawling", "url", document.Url)
+
 	scheme, host, path, err := utils.ExtractUrlComponents(document.Url)
 	if err != nil {
 		log.Error("Extracting url components", "err", err)
@@ -73,6 +75,11 @@ func crawlDocument(document common.Document) {
 		Path:   path,
 	}
 	document.BaseUrl = fmt.Sprintf("%s://%s", scheme, host)
+
+	if pageCrawled(document.Url) {
+		log.Warn("Document has been crawled", "url", document.Url)
+		return
+	}
 
 	if !urlAllowed(&document.UrlComponents) {
 		log.Warn("Url not allowed", "url", document.Url)
@@ -121,7 +128,17 @@ func crawlDocument(document common.Document) {
 		return
 	}
 
+	crawledURLSMap.Set(document.Url, true)
+
 	log.Info("Done crawling", "url", document.Url)
+}
+
+func pageCrawled(url string) bool {
+	if crawledURLSMap.Get(url) {
+		return true
+	}
+
+	return false
 }
 
 func urlAllowed(urlComponents *common.UrlComponents) bool {
@@ -150,9 +167,6 @@ func agentAllowed(document *common.Document) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if resp.StatusCode > 399 {
-		return true, nil
-	}
 
 	defer resp.Body.Close()
 	robotsBytes, err := io.ReadAll(resp.Body)
@@ -171,9 +185,9 @@ func agentAllowed(document *common.Document) (bool, error) {
 
 func handleCrawlResponse(resp *http.Response, document *common.Document) error {
 	contentType := strings.Split(strings.ToLower(resp.Header.Get("content-type")), ";")
+
 	document.Response = common.DocumentResponse{
 		ContentType: contentType[0],
-		CharSet:     strings.Split(contentType[1], "=")[1],
 		StatusCode:  int16(resp.StatusCode),
 	}
 
@@ -189,13 +203,8 @@ func handleCrawlResponse(resp *http.Response, document *common.Document) error {
 
 func documentAllowed(documentResponse *common.DocumentResponse) bool {
 	var allowedContentTypes = map[string]bool{"text/html": true, "text/plain": true}
-	var alllowedCharSets = map[string]bool{"utf-8": true}
 
 	if _, exists := allowedContentTypes[documentResponse.ContentType]; !exists {
-		return false
-	}
-
-	if _, exists := alllowedCharSets[documentResponse.CharSet]; !exists {
 		return false
 	}
 
@@ -218,6 +227,8 @@ func parseDocument(document *common.Document) error {
 		document.MetaData = parsers.HtmlMetaData(parsedHtml)
 		pageText := parsers.HtmlText(parsedHtml, true)
 		utils.FillTextDocEmptyMetaData(document, pageText)
+
+		document.Content = pageText
 
 	case "text/plain":
 		document.MetaData = utils.DefaultMetaData()

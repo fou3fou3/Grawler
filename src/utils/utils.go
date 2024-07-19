@@ -36,6 +36,10 @@ func HttpRequest(method string, url string, headers map[string]string) (*http.Re
 		return nil, err
 	}
 
+	if resp.StatusCode > 399 {
+		return nil, fmt.Errorf("Error status code %v", resp.StatusCode)
+	}
+
 	return resp, nil
 }
 
@@ -152,6 +156,7 @@ func SetupLogger() {
 	log.SetDefault(logger)
 }
 
+// Move to main function urlAllowed
 func childUrlAllowed(url *string, baseUrl *string) bool {
 	if *url == "" {
 		return false
@@ -179,7 +184,7 @@ func childUrlAllowed(url *string, baseUrl *string) bool {
 func PushChilds(frontier *xsync.MPMCQueueOf[common.Document], document *common.Document) {
 	for _, url := range document.ChildUrls {
 		if childUrlAllowed(&url, &document.BaseUrl) {
-			frontier.Enqueue(common.Document{
+			frontier.TryEnqueue(common.Document{
 				ParentUrl: document.Url,
 				Url:       url,
 			})

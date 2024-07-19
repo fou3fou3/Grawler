@@ -1,46 +1,51 @@
 package db
 
 import (
-	"context"
 	"crawler/src/common"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/couchbase/gocb/v2"
 )
 
-var client *mongo.Client
-var err error
+var cluster *gocb.Cluster
+var documents *gocb.Bucket
+var crawledDocuments *gocb.Collection
 
-func InitMongo() (*mongo.Client, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err = mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
-
-	return client, err
-}
-
-func InsertDocument(document *common.Document) error {
-	// Make this a shared collection so we dont make a query each time
-	collection := client.Database("crawler").Collection("documents")
-
-	insertDocument := common.InsertDocument{
-		ParentUrl: document.ParentUrl,
-		Url:       document.Url,
-
-		Response: document.Response,
-
-		Content:  document.Content,
-		MetaData: document.MetaData,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := collection.InsertOne(ctx, insertDocument)
+func InitCouchbase() error {
+	var err error
+	cluster, err = gocb.Connect("couchbase://localhost", gocb.ClusterOptions{
+		Username: "Administrator",
+		Password: "password",
+	})
 	if err != nil {
 		return err
 	}
 
+	documents = cluster.Bucket("Documents")
+	err = documents.WaitUntilReady(5*time.Second, nil)
+	if err != nil {
+		return err
+	}
+
+	crawledDocuments = documents.Scope("CrawledDocuments").Collection("CrawledDocuments")
+	return nil
+}
+
+func InsertDocument(document *common.Document) error {
+	insertDocument := common.InsertDocument{
+		ParentUrl: document.ParentUrl,
+		Url:       document.Url,
+		Response:  document.Response,
+		Content:   document.Content,
+		MetaData:  document.MetaData,
+		Timestamp: time.Now(),
+	}
+
+	_, err := crawledDocuments.Insert(document.Url, insertDocument, &gocb.InsertOptions{
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
