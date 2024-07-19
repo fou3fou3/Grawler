@@ -6,6 +6,7 @@ import (
 	"crawler/src/parsers"
 	"crawler/src/utils"
 	"fmt"
+	"sync"
 	"time"
 
 	"io"
@@ -54,15 +55,50 @@ func main() {
 		log.Fatal("Failed to connect to couchbase", "err", err)
 	}
 
-	baseDocument := common.Document{ParentUrl: "", Url: "https://en.wikipedia.org/wiki/Cosmic_microwave_background"}
-	frontier.Enqueue(baseDocument)
+	urls := []string{
+		"https://en.wikipedia.org/wiki/Microsoft_Windows",
+		"https://en.wikipedia.org/wiki/Apple_MacOS",
+		"https://en.wikipedia.org/wiki/Linux",
+		"https://en.wikipedia.org/wiki/Adobe_Photoshop",
+		"https://en.wikipedia.org/wiki/Microsoft_Office",
+		"https://en.wikipedia.org/wiki/Google_Chrome",
+		"https://en.wikipedia.org/wiki/Android_(operating_system)",
+		"https://en.wikipedia.org/wiki/iOS",
+		"https://en.wikipedia.org/wiki/Mozilla_Firefox",
+		"https://en.wikipedia.org/wiki/Visual_Studio_Code",
+	}
+
+	// Enqueue each URL
+	for _, url := range urls {
+		document := common.Document{ParentUrl: "", Url: url}
+		frontier.Enqueue(document)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(int(20))
+
+	for i := 0; i < 20; i++ {
+		go crawlWorker(&wg)
+	}
+
+	wg.Wait()
+}
+
+func crawlWorker(wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
-		crawlDocument(frontier.Dequeue())
+		document, ok := frontier.TryDequeue()
+		if !ok {
+			continue
+		}
+		crawlDocument(document)
+
+		crawledURLSMap.Set(document.Url, true)
 	}
 }
 
 func crawlDocument(document common.Document) {
-	log.Info("Crawling", "url", document.Url)
+	crawlStart := time.Now()
 
 	scheme, host, path, err := utils.ExtractUrlComponents(document.Url)
 	if err != nil {
@@ -129,9 +165,7 @@ func crawlDocument(document common.Document) {
 		return
 	}
 
-	crawledURLSMap.Set(document.Url, true)
-
-	log.Info("Done crawling", "url", document.Url)
+	log.Info("Done crawling", "url", document.Url, "time", time.Since(crawlStart).Milliseconds())
 }
 
 func pageCrawled(url string) bool {

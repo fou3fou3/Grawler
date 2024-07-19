@@ -184,10 +184,13 @@ func childUrlAllowed(url *string, baseUrl *string) bool {
 func PushChilds(frontier *xsync.MPMCQueueOf[common.Document], document *common.Document) {
 	for _, url := range document.ChildUrls {
 		if childUrlAllowed(&url, &document.BaseUrl) {
-			frontier.TryEnqueue(common.Document{
+			res := frontier.TryEnqueue(common.Document{
 				ParentUrl: document.Url,
 				Url:       url,
 			})
+			if !res {
+				return // We returning because all the other itteration would have no meaning since the queue is full
+			}
 		}
 	}
 }
