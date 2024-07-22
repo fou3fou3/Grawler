@@ -1,58 +1,45 @@
 package main
 
 import (
+	"context"
 	"crawler/src/common"
 	"crawler/src/db"
-	"crawler/src/httpReqs"
-	"crawler/src/jsonData"
 	"crawler/src/parsers"
-	"io"
-	"net/http"
-
+	"crawler/src/utils"
+	"errors"
 	"fmt"
-	"os"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
+
+	"io"
+	"net/http"
+	"strings"
 
 	"github.com/charmbracelet/log"
 	"github.com/jimsmart/grobotstxt"
 	"github.com/puzpuzpuz/xsync/v3"
-
 	"golang.org/x/net/html"
 )
 
-// Constants for crawler change by requirements
-const numberOfWorkers int16 = 3
-const respectRobots bool = true
-const userAgent string = "grawler"
-const dbName string = "web-crawler"
-const descriptionLengthFromDocument int = 160
-const titleLengthFromDocument int = 35
-const hostCrawlDelay time.Duration = 400 * time.Millisecond
-const documentExtension string = ".txt"
+const userAgent = "grawler"
 
-var allowedSchemes = map[string]bool{"http": true, "https": true}
+// var seedList []string
 
-// for specefic websites crawling
-// var allowedHosts = map[string]bool{"en.wikipedia.org": true}
+var frontier *xsync.MPMCQueueOf[common.Document]
 
-var seedList []string
-
-var frontier *xsync.MPMCQueueOf[common.UrlData]
-
+// add sort of removing after a certain period this is cruicial since we might be running it for days and weeks
 var crawledURLSMap *common.SafeBoolMap
+
 var hostLastCrawledMap *common.SafeTimestampMap
 
 func initializeMaps() {
-	var err error
-	seedList, err = jsonData.LoadSeedList()
-	if err != nil {
-		log.Fatal("error loading seed list:", err)
-	}
+	// var err error
+	// seedList, err = jsonData.LoadSeedList()
+	// if err != nil {
+	// 	log.Fatal("error loading seed list:", err)
+	// }
 
-	frontier = xsync.NewMPMCQueueOf[common.UrlData](100000000)
+	frontier = xsync.NewMPMCQueueOf[common.Document](100000)
 	crawledURLSMap = &common.SafeBoolMap{
 		M: make(map[string]bool),
 	}
@@ -62,374 +49,261 @@ func initializeMaps() {
 	}
 }
 
-func crawlAbleCheck(urlData common.UrlData, scheme string, host string) (bool, error) {
-	if _, exists := allowedSchemes[scheme]; !exists {
-		return false, fmt.Errorf("Scheme not allowed [%s]", scheme)
-	}
-
-	if crawledURLSMap.Get(urlData.URL) {
-		return false, fmt.Errorf("Document has been crawled [%s]", urlData.URL)
-	}
-
-	// If you are confused this gets the last time a host has been crawled if a specefic delay hasent passed we cancel the request and add the url data to the frontier
-	// to be crawled later
-	if hostLastCrawledTimestamp, exists := hostLastCrawledMap.Get(host); exists && hostLastCrawledTimestamp.After(time.Now().Add(-hostCrawlDelay)) {
-		frontier.Enqueue(urlData)
-		return false, fmt.Errorf("Host delay still not completed")
-	}
-
-	pageExists, crawledTimestamp, err := db.CheckPageExistance(urlData.URL)
-	if err != nil {
-		log.Error("Error while checking page existance", "error", err)
-	}
-
-	if pageExists {
-		oneAndHalfMonthsAgo := time.Now().AddDate(0, -1, -15)
-		if crawledTimestamp.After(oneAndHalfMonthsAgo) {
-			return false, fmt.Errorf("Document has been crawled recently [%s]", urlData.URL)
-		}
-
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func checkRobots(url string, baseUrl string, host string) (bool, string, error) {
-	robots, robotsRequestTimestamp, hostSaved, err := db.GetRobots(host)
-	if err != nil {
-		log.Error("error checking robots/host row existance", "error", err)
-	}
-
-	if hostSaved {
-		oneAndHalfMonthsAgo := time.Now().AddDate(0, -1, -15)
-		if robotsRequestTimestamp.Before(oneAndHalfMonthsAgo) {
-			hostSaved = false
-
-			robots, err = httpReqs.RobotsRequest(baseUrl)
-			if err != nil {
-				log.Error("error fetching for updating robots.txt", "host", baseUrl, "error", err)
-			}
-		}
-		// log.Debug("Found robots info", "host", baseUrl)
-	} else {
-		robots, err = httpReqs.RobotsRequest(baseUrl)
-		if err != nil {
-			log.Error("error fetching robots.txt", "host", baseUrl, "error", err)
-		}
-
-		// log.Debug("Fetched robots.txt", "host", baseUrl)
-	}
-
-	if !grobotstxt.AgentAllowed(robots, userAgent, url) {
-		log.Debug("", "URL", url)
-		return false, "", fmt.Errorf("User agent not allowed by robots.txt [%s]", url)
-	}
-
-	if hostSaved {
-		return true, "", nil
-	}
-	return false, robots, nil
-}
-
-func parseDocument(resp *http.Response, contentType string) (string, *html.Node, error) {
-	defer resp.Body.Close()
-
-	var pageText string
-	var parsedHtml *html.Node
-	var err error
-
-	switch contentType {
-	case "text/html":
-		parsedHtml, err = html.Parse(resp.Body)
-		if err != nil {
-			return "", nil, fmt.Errorf("parse HTML failure: %v", err)
-		}
-
-		// Extract page-text
-		pageText = parsers.ExtractPageText(parsedHtml, true)
-
-	case "text/plain", "application/pdf":
-		pageBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", nil, fmt.Errorf("error reading bytes of reponse body: %v", err)
-		}
-
-		switch contentType {
-		case "application/pdf":
-			pageText, err = common.ReadPdfFromBytes(pageBytes)
-			if err != nil {
-				return "", nil, fmt.Errorf("error reading pdf from bytes: %v", err)
-			}
-
-		case "text/plain":
-			pageText = string(pageBytes)
-		}
-
-	default:
-		return "", nil, fmt.Errorf("Content-Type is not supported: %s", contentType)
-	}
-
-	pageText = strings.ReplaceAll(pageText, "\n", "")
-	pageText = strings.ReplaceAll(pageText, "\r", "")
-	pageText = strings.Trim(pageText, " ")
-
-	return pageText, parsedHtml, nil
-}
-
-func extractMetaData(baseUrl string, host string, pageText string, contentType string, parsedHtml *html.Node) common.MetaData {
-	var metaData common.MetaData
-	var err error
-
-	if contentType == "text/html" {
-		subURLS := parsers.ExtractURLS(parsedHtml)
-		// log.Debug("extracted URLS", "number of URLS", len(subURLS), "URL", urlData.URL)
-
-		for _, url := range subURLS {
-			if url != "" {
-				if url[0] == '#' || url[0] == '?' {
-					// subURLS[i] = ""
-					// commented because we are not currently pushing suburls to the db
-					continue
-				}
-
-				url, err = parsers.ConvertUrlToString(url)
-				if err != nil {
-					log.Error("URL to string failure", "error", err)
-					continue
-				}
-
-				// CHECK IF THIS WORKS @TODO, im not sure but seems working needs more debugging
-				if url[0] == '/' {
-					url = fmt.Sprintf("%s%s", baseUrl, url)
-					// subURLS[i] = url // This is so we update the list with the url, so its correct when pushing to the db
-					// commented because we are not currently pushing suburls to the db
-				}
-
-				subUrlData := common.UrlData{
-					URL:       url,
-					ParentURL: url,
-				}
-
-				frontier.Enqueue(subUrlData)
-
-				// Uncomment this if you want to see all extracted urls from a page .
-				// log.Infof("Extracted: %v from %v .", url, urlData.URL)
-
-			}
-		}
-		metaData = parsers.ExtractMetaData(parsedHtml)
-		if metaData.Title == "" {
-			metaData.Title = pageText[:min(titleLengthFromDocument, len(pageText))]
-		}
-
-		if metaData.Description == "" {
-			metaData.Description = pageText[:min(descriptionLengthFromDocument, len(pageText))]
-		}
-
-		if metaData.SiteName == "" {
-			metaData.SiteName = host
-		}
-
-		if metaData.IconLink != "" {
-			if metaData.IconLink[0] == '/' {
-				metaData.IconLink = fmt.Sprintf("%s%s", baseUrl, metaData.IconLink)
-			}
-		}
-	} else {
-		metaData = common.MetaData{
-			IconLink:    "",
-			SiteName:    host,
-			Title:       pageText[:min(titleLengthFromDocument, len(pageText))],
-			Description: pageText[:min(descriptionLengthFromDocument, len(pageText))],
-		}
-	}
-
-	return metaData
-}
-
-func crawlPage(urlData common.UrlData) {
-	scheme, host, path, err := parsers.ExtractURLData(urlData.URL)
-	if err != nil {
-		log.Error("failed to extract base URL", "error", err)
-		return
-	}
-
-	pageExists, err := crawlAbleCheck(urlData, scheme, host)
-	if err != nil {
-		log.Debug("Page not crawlable: %v", err)
-	}
-
-	baseUrl := fmt.Sprintf("%s://%s", scheme, host)
-
-	hostSaved, robots, err := checkRobots(urlData.URL, baseUrl, host)
-	if err != nil {
-		log.Debug("Not allowed by robots: %v", err)
-		return
-	}
-
-	log.Info("crawling", "URL", urlData.URL)
-
-	resp, err := httpReqs.CrawlRequest(urlData.URL)
-	if err != nil {
-		log.Error("GET request Error", "URL", urlData.URL, "Error", err)
-		return
-	}
-
-	if resp.StatusCode > 399 {
-		log.Error("request error", "status-code", resp.StatusCode, "URL", urlData.URL)
-		return
-	}
-
-	contentType := strings.Split(resp.Header.Get("content-type"), ";")[0]
-
-	pageText, parsedHtml, err := parseDocument(resp, contentType)
-
-	pageHash := common.HashSHA256(pageText)
-
-	hashExists, err := db.CheckPageHash(pageHash)
-	if err != nil {
-		log.Error("failed to check page hash", "error", err)
-		return
-	}
-
-	// Continue to the next url if page has an equivilant or the content hasen't been updated since last time crawled
-	if hashExists {
-		log.Warn("Hash already exists", "hash", pageHash, "current page url", urlData.URL)
-		return
-	}
-
-	metaData := extractMetaData(baseUrl, host, pageText, contentType, parsedHtml)
-
-	hostFolderPath := fmt.Sprintf("%s%s", common.DocumentsFolderName, strings.ReplaceAll(host, ":", "_"))
-
-	if !hostSaved {
-		hostShared := common.HostShared{
-			Host:     host,
-			Robots:   robots,
-			IconLink: metaData.IconLink,
-			SiteName: metaData.SiteName,
-		}
-
-		err := db.InsertHost(hostShared)
-		if err != nil {
-			log.Error("error inserting host shared data", "error", err, "host", host)
-			return
-		}
-
-		// Create the host folder if not exists
-		err = common.CreateFolder(hostFolderPath)
-		if err != nil {
-			log.Error("Error creating host folder %s", err)
-			return
-		}
-	}
-
-	// This basically checks if the first letter is a / for example /about and removes it
-	if len(path) > 0 {
-		if path[0] == '/' {
-			path = strings.Replace(path, "/", "", 1)
-		}
-		path = strings.ReplaceAll(path, "/", "_")
-	}
-	// This replaces all / characters in a path with _ because when saving / causes problems since the system reads it as a new directory
-
-	documentPath := fmt.Sprintf("%s/%s%s", hostFolderPath, path, documentExtension)
-
-	page := &common.CrawledPage{
-		URL:          urlData.URL,
-		PageText:     pageText,
-		ParentURL:    urlData.ParentURL,
-		TimeCrawled:  time.Now(),
-		PageHash:     pageHash,
-		MetaData:     metaData,
-		Host:         host,
-		DocumentPath: documentPath,
-	}
-
-	if pageExists {
-		err = db.UpdatePage(page)
-		// Removing all page words before updating
-		db.DeleteWords(urlData.URL)
-	} else {
-		err = db.InsertCrawledPage(page)
-	}
-
-	if err != nil {
-		log.Error("error inserting/updating page:", "error", err, "URL", urlData.URL, "parent URL", urlData.ParentURL)
-		return
-	}
-
-	re := regexp.MustCompile(`\b\w+\b`)
-	words := re.FindAllString(pageText, -1)
-
-	wordsFrequencies := make(map[string]int)
-
-	for _, word := range words {
-		word = strings.ToLower(word)
-		wordsFrequencies[word]++
-	}
-
-	err = db.InsertWords(wordsFrequencies, urlData.URL)
-	if err != nil {
-		log.Error("error inserting words:", "error", err)
-		return
-	}
-
-	hostLastCrawledMap.Set(host, time.Now())
-	crawledURLSMap.Set(urlData.URL, true)
-
-	return
-}
-
-func crawlWorker(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for {
-		start := time.Now()
-
-		urlData := frontier.Dequeue()
-		crawlPage(urlData)
-
-		log.Debug("done crawling", "URL", urlData.URL, "time taken", time.Since(start))
-	}
-}
-
 func main() {
-	logger := log.NewWithOptions(os.Stderr, log.Options{
-		ReportTimestamp: true,
-		Level:           log.DebugLevel,
-	})
-	log.SetDefault(logger)
-
-	err := common.CreateFolder(common.DocumentsFolderName)
-	if err != nil {
-		log.Fatal("Failed to create documents folder", "Error", err)
-	}
-
-	err = db.InitPostgres("localhost", "5432", "postgres", "password", dbName)
-	if err != nil {
-		log.Fatal("failed to connect to PostgreSQL:", err)
-	}
-	defer db.ClosePostgres()
-
+	utils.SetupLogger()
 	initializeMaps()
 
-	for _, url := range seedList {
-		urlData := common.UrlData{
-			URL:       url,
-			ParentURL: nil,
-		}
-		frontier.Enqueue(urlData)
+	err := db.InitCouchbase()
+	if err != nil {
+		log.Fatal("Failed to connect to couchbase", "err", err)
+	}
+
+	urls := []string{
+		"https://www.electronics-tutorials.ws/",
+		"https://www.allaboutcircuits.com/",
+		"https://www.electronicsweekly.com/",
+		"https://www.digikey.com/en/resources/education",
+		"https://www.electronicdesign.com/",
+		"https://www.makeuseof.com/tag/20-websites-learn-electronics/",
+		"https://www.eetimes.com/",
+		"https://www.hackaday.com/",
+		"https://www.circuitstoday.com/",
+		"https://www.electronicsforu.com/",
+		"https://www.adafruit.com/",
+		"https://www.sparkfun.com/",
+		"https://www.ifixit.com/",
+		"https://www.engineersgarage.com/",
+		"https://www.edn.com/",
+		"https://www.ti.com/",
+		"https://www.nutsvolts.com/",
+		"https://www.hackster.io/",
+		"https://www.electronics-lab.com/",
+		"https://www.analog.com/",
+		"https://www.instructables.com/circuits/electronics/",
+		"https://www.sciencedaily.com/news/computers_math/electronics/",
+		"https://www.arrow.com/en/research-and-events/articles",
+		"https://www.mouser.com/blog/",
+		"https://www.rs-online.com/designspark/electronics",
+	}
+
+	// Enqueue each URL
+	for _, url := range urls {
+		document := common.Document{ParentUrl: "", Url: url}
+		frontier.Enqueue(document)
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(int(numberOfWorkers))
+	wg.Add(int(4))
 
-	for range numberOfWorkers {
+	for i := 0; i < 4; i++ {
 		go crawlWorker(&wg)
 	}
 
 	wg.Wait()
+}
 
+func crawlWorker(wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		document, ok := frontier.TryDequeue()
+		if !ok {
+			continue
+		}
+		crawlDocument(document)
+	}
+}
+
+func crawlDocument(document common.Document) {
+	crawlStart := time.Now()
+
+	scheme, host, path, err := utils.ExtractUrlComponents(document.Url)
+	if err != nil {
+		log.Error("Extracting url components", "err", err)
+		return
+	}
+
+	document.UrlComponents = common.UrlComponents{
+		Scheme: scheme,
+		Host:   host,
+		Path:   path,
+	}
+	document.BaseUrl = fmt.Sprintf("%s://%s", scheme, host)
+
+	if !currentlyCrawlable(&document) {
+		// log.Warn("Document has been crawled or host delay still hasn't passed", "url", document.Url)
+		return
+	}
+
+	if !urlAllowed(&document.UrlComponents) {
+		log.Warn("Url not allowed", "url", document.Url)
+		return
+	}
+
+	allowed, err := agentAllowed(&document)
+	if err != nil {
+		log.Error("Checking if user agent is allowed", "err", err)
+		return
+	}
+	if !allowed {
+		log.Warn("Not allowed by robots", "url", document.Url)
+		return
+	}
+
+	resp, err := utils.HttpRequest("GET", document.Url, map[string]string{"User-Agent": userAgent})
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			log.Error("Making crawl request", "url", document.Url, "err", err)
+		}
+		return
+	}
+
+	err = handleCrawlResponse(resp, &document)
+	if err != nil {
+		log.Error("Handling crawl response", "err", err)
+		return
+	}
+
+	allowed = documentAllowed(&document.Response)
+	if !allowed {
+		log.Warn("Document not allowed")
+		return
+	}
+
+	err = parseDocument(&document)
+	if err != nil {
+		log.Error("Parsing document", "err", err)
+		return
+	}
+
+	crawledURLSMap.Set(document.Url, true)
+	utils.PushChilds(frontier, &document)
+
+	err = db.InsertDocument(&document)
+	if err != nil {
+		log.Error("Inserting document", "err", err)
+		return
+	}
+
+	log.Info("Done crawling", "url", document.Url, "time", time.Since(crawlStart).Milliseconds())
+}
+
+func currentlyCrawlable(document *common.Document) bool {
+	if crawledURLSMap.Get(document.Url) {
+		return false
+	}
+	if timestamp, exists := hostLastCrawledMap.Get(document.UrlComponents.Host); exists {
+		if timestamp.Before(time.Now().Add(time.Millisecond * 700)) {
+			frontier.TryEnqueue(*document)
+			return false
+		}
+	}
+
+	return true
+}
+
+func urlAllowed(urlComponents *common.UrlComponents) bool {
+	var allowedSchemes = map[string]bool{"http": true, "https": true}
+	var unallowedHosts = map[string]bool{}
+	var unallowedPaths = map[string]bool{"/robots.txt": true}
+
+	if _, exists := allowedSchemes[urlComponents.Scheme]; !exists {
+		return false
+	}
+	if _, exists := unallowedHosts[urlComponents.Host]; exists {
+		return false
+	}
+	if _, exists := unallowedPaths[urlComponents.Path]; exists {
+		return false
+	}
+
+	return true
+}
+
+func agentAllowed(document *common.Document) (bool, error) {
+	robotsItem, exists, err := db.GetRobots(document.UrlComponents.Host)
+	if err != nil {
+		return false, err
+	}
+
+	var robots string
+
+	if !exists || robotsItem.Timestamp.Before(time.Now().AddDate(0, -1, -15)) {
+		resp, err := utils.HttpRequest("GET", fmt.Sprintf("%s/robots.txt", document.BaseUrl), map[string]string{"User-Agent": userAgent})
+		if err != nil {
+			return false, err
+		}
+
+		defer resp.Body.Close()
+		robotsBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false, err
+		}
+
+		robots = string(robotsBytes)
+
+		db.InsertRobots(common.RobotsItem{Host: document.UrlComponents.Host, Robots: robots, Timestamp: time.Now()})
+	} else {
+		robots = robotsItem.Robots
+	}
+
+	if !grobotstxt.AgentAllowed(robots, userAgent, document.Url) {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func handleCrawlResponse(resp *http.Response, document *common.Document) error {
+	contentType := strings.Split(strings.ToLower(resp.Header.Get("content-type")), ";")
+
+	document.Response = common.DocumentResponse{
+		ContentType: contentType[0],
+		StatusCode:  int16(resp.StatusCode),
+	}
+
+	defer resp.Body.Close()
+	documentBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	document.Content = string(documentBytes)
+	return nil
+}
+
+func documentAllowed(documentResponse *common.DocumentResponse) bool {
+	var allowedContentTypes = map[string]bool{"text/html": true, "text/plain": true}
+
+	if _, exists := allowedContentTypes[documentResponse.ContentType]; !exists {
+		return false
+	}
+
+	return true
+}
+
+func parseDocument(document *common.Document) error {
+	// @TODO add words & frequencies map to parsing
+	// @TODO remove icon link from here that can be dealt with on host shared..
+	switch document.Response.ContentType {
+	case "text/html":
+		document.Content = strings.ToValidUTF8(document.Content, "")
+
+		parsedHtml, err := html.Parse(strings.NewReader(document.Content))
+		if err != nil {
+			return err
+		}
+		document.ChildUrls = parsers.HtmlUrls(parsedHtml)
+
+		document.MetaData = parsers.HtmlMetaData(parsedHtml)
+		pageText := parsers.HtmlText(parsedHtml, true)
+		utils.FillTextDocEmptyMetaData(document, pageText)
+
+		document.Content = pageText
+
+	case "text/plain":
+		document.MetaData = utils.DefaultMetaData()
+		utils.FillTextDocEmptyMetaData(document, document.Content)
+	}
+
+	return nil
 }
