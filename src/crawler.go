@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"crawler/src/common"
 	"crawler/src/db"
 	"crawler/src/parsers"
 	"crawler/src/utils"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,9 +27,10 @@ const userAgent = "grawler"
 
 var frontier *xsync.MPMCQueueOf[common.Document]
 
+// add sort of removing after a certain period this is cruicial since we might be running it for days and weeks
 var crawledURLSMap *common.SafeBoolMap
 
-// var hostLastCrawledMap *common.SafeTimestampMap
+var hostLastCrawledMap *common.SafeTimestampMap
 
 func initializeMaps() {
 	// var err error
@@ -41,9 +44,9 @@ func initializeMaps() {
 		M: make(map[string]bool),
 	}
 
-	// hostLastCrawledMap = &common.SafeTimestampMap{
-	// 	M: make(map[string]time.Time),
-	// }
+	hostLastCrawledMap = &common.SafeTimestampMap{
+		M: make(map[string]time.Time),
+	}
 }
 
 func main() {
@@ -56,16 +59,31 @@ func main() {
 	}
 
 	urls := []string{
-		"https://en.wikipedia.org/wiki/Microsoft_Windows",
-		"https://en.wikipedia.org/wiki/Apple_MacOS",
-		"https://en.wikipedia.org/wiki/Linux",
-		"https://en.wikipedia.org/wiki/Adobe_Photoshop",
-		"https://en.wikipedia.org/wiki/Microsoft_Office",
-		"https://en.wikipedia.org/wiki/Google_Chrome",
-		"https://en.wikipedia.org/wiki/Android_(operating_system)",
-		"https://en.wikipedia.org/wiki/iOS",
-		"https://en.wikipedia.org/wiki/Mozilla_Firefox",
-		"https://en.wikipedia.org/wiki/Visual_Studio_Code",
+		"https://www.electronics-tutorials.ws/",
+		"https://www.allaboutcircuits.com/",
+		"https://www.electronicsweekly.com/",
+		"https://www.digikey.com/en/resources/education",
+		"https://www.electronicdesign.com/",
+		"https://www.makeuseof.com/tag/20-websites-learn-electronics/",
+		"https://www.eetimes.com/",
+		"https://www.hackaday.com/",
+		"https://www.circuitstoday.com/",
+		"https://www.electronicsforu.com/",
+		"https://www.adafruit.com/",
+		"https://www.sparkfun.com/",
+		"https://www.ifixit.com/",
+		"https://www.engineersgarage.com/",
+		"https://www.edn.com/",
+		"https://www.ti.com/",
+		"https://www.nutsvolts.com/",
+		"https://www.hackster.io/",
+		"https://www.electronics-lab.com/",
+		"https://www.analog.com/",
+		"https://www.instructables.com/circuits/electronics/",
+		"https://www.sciencedaily.com/news/computers_math/electronics/",
+		"https://www.arrow.com/en/research-and-events/articles",
+		"https://www.mouser.com/blog/",
+		"https://www.rs-online.com/designspark/electronics",
 	}
 
 	// Enqueue each URL
@@ -75,9 +93,9 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(int(20))
+	wg.Add(int(4))
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 4; i++ {
 		go crawlWorker(&wg)
 	}
 
@@ -92,8 +110,6 @@ func crawlWorker(wg *sync.WaitGroup) {
 			continue
 		}
 		crawlDocument(document)
-
-		crawledURLSMap.Set(document.Url, true)
 	}
 }
 
@@ -113,8 +129,8 @@ func crawlDocument(document common.Document) {
 	}
 	document.BaseUrl = fmt.Sprintf("%s://%s", scheme, host)
 
-	if pageCrawled(document.Url) {
-		log.Warn("Document has been crawled", "url", document.Url)
+	if !currentlyCrawlable(&document) {
+		// log.Warn("Document has been crawled or host delay still hasn't passed", "url", document.Url)
 		return
 	}
 
@@ -135,7 +151,9 @@ func crawlDocument(document common.Document) {
 
 	resp, err := utils.HttpRequest("GET", document.Url, map[string]string{"User-Agent": userAgent})
 	if err != nil {
-		log.Error("Making crawl response", "err", err)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			log.Error("Making crawl request", "url", document.Url, "err", err)
+		}
 		return
 	}
 
@@ -157,6 +175,7 @@ func crawlDocument(document common.Document) {
 		return
 	}
 
+	crawledURLSMap.Set(document.Url, true)
 	utils.PushChilds(frontier, &document)
 
 	err = db.InsertDocument(&document)
@@ -168,12 +187,18 @@ func crawlDocument(document common.Document) {
 	log.Info("Done crawling", "url", document.Url, "time", time.Since(crawlStart).Milliseconds())
 }
 
-func pageCrawled(url string) bool {
-	if crawledURLSMap.Get(url) {
-		return true
+func currentlyCrawlable(document *common.Document) bool {
+	if crawledURLSMap.Get(document.Url) {
+		return false
+	}
+	if timestamp, exists := hostLastCrawledMap.Get(document.UrlComponents.Host); exists {
+		if timestamp.Before(time.Now().Add(time.Millisecond * 700)) {
+			frontier.TryEnqueue(*document)
+			return false
+		}
 	}
 
-	return false
+	return true
 }
 
 func urlAllowed(urlComponents *common.UrlComponents) bool {

@@ -13,6 +13,8 @@ var documents *gocb.Bucket
 var crawledDocuments *gocb.Collection
 var robots *gocb.Collection
 
+var UpsertOptions = gocb.UpsertOptions{Timeout: 5 * time.Second}
+
 func InitCouchbase() error {
 	var err error
 	cluster, err = gocb.Connect("couchbase://localhost", gocb.ClusterOptions{
@@ -35,6 +37,7 @@ func InitCouchbase() error {
 	return nil
 }
 
+// Add upadting mechanism
 func InsertDocument(document *common.Document) error {
 	insertDocument := common.InsertDocument{
 		ParentUrl: document.ParentUrl,
@@ -45,9 +48,7 @@ func InsertDocument(document *common.Document) error {
 		Timestamp: time.Now(),
 	}
 
-	_, err := crawledDocuments.Insert(document.Url, insertDocument, &gocb.InsertOptions{
-		Timeout: 5 * time.Second,
-	})
+	_, err := crawledDocuments.Upsert(document.Url, insertDocument, &UpsertOptions)
 	if err != nil {
 		return err
 	}
@@ -76,7 +77,7 @@ func GetRobots(host string) (*common.RobotsItem, bool, error) {
 }
 
 func InsertRobots(robotsItem common.RobotsItem) error {
-	_, err := robots.Insert(robotsItem.Host, robotsItem, nil)
+	_, err := robots.Upsert(robotsItem.Host, robotsItem, &UpsertOptions)
 	if err != nil {
 		return err
 	}
