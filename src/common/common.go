@@ -50,8 +50,6 @@ type InsertDocument struct {
 	Content  string
 	MetaData MetaData
 
-	Words map[string]int
-
 	Timestamp time.Time
 }
 
@@ -60,6 +58,11 @@ type RobotsItem struct {
 	Robots string `json:"robots"`
 
 	Timestamp time.Time
+}
+
+type Word struct {
+	Word      string
+	Frequency int
 }
 
 // string safe map

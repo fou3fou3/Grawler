@@ -3,15 +3,19 @@ package db
 import (
 	"crawler/src/common"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/couchbase/gocb/v2"
 )
 
 var cluster *gocb.Cluster
+
 var documents *gocb.Bucket
+
 var crawledDocuments *gocb.Collection
 var robots *gocb.Collection
+var words *gocb.Collection
 
 var UpsertOptions = gocb.UpsertOptions{Timeout: 5 * time.Second}
 
@@ -33,6 +37,7 @@ func InitCouchbase() error {
 
 	crawledDocuments = documents.Scope("CrawledDocuments").Collection("CrawledDocuments")
 	robots = documents.Scope("CrawledDocuments").Collection("Robots")
+	robots = documents.Scope("CrawledDocuments").Collection("Words")
 
 	return nil
 }
@@ -48,14 +53,27 @@ func InsertDocument(document *common.Document) error {
 		Content:  document.Content,
 		MetaData: document.MetaData,
 
-		Words: document.Words,
-
 		Timestamp: time.Now(),
 	}
 
-	_, err := crawledDocuments.Upsert(document.Url, insertDocument, &UpsertOptions)
+	err := InsertWords(document.Url, document.Words)
 	if err != nil {
 		return err
+	}
+
+	_, err = crawledDocuments.Upsert(document.Url, insertDocument, &UpsertOptions)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func InsertWords(parentUrl string, Words map[string]int) error {
+	for word, freq := range Words {
+		_, err := words.Upsert(fmt.Sprintf("%s%s", parentUrl, word), common.Word{Word: word, Frequency: freq}, &UpsertOptions)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
