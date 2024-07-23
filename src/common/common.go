@@ -34,7 +34,9 @@ type Document struct {
 
 	Response DocumentResponse
 
-	Content   string
+	Content string
+	Words   map[string]int
+
 	MetaData  MetaData
 	ChildUrls []string
 }
@@ -47,6 +49,8 @@ type InsertDocument struct {
 
 	Content  string
 	MetaData MetaData
+
+	Words map[string]int
 
 	Timestamp time.Time
 }

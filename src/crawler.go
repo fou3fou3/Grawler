@@ -282,8 +282,6 @@ func documentAllowed(documentResponse *common.DocumentResponse) bool {
 }
 
 func parseDocument(document *common.Document) error {
-	// @TODO add words & frequencies map to parsing
-	// @TODO remove icon link from here that can be dealt with on host shared..
 	switch document.Response.ContentType {
 	case "text/html":
 		document.Content = strings.ToValidUTF8(document.Content, "")
@@ -292,17 +290,23 @@ func parseDocument(document *common.Document) error {
 		if err != nil {
 			return err
 		}
+
 		document.ChildUrls = parsers.HtmlUrls(parsedHtml)
 
 		document.MetaData = parsers.HtmlMetaData(parsedHtml)
-		pageText := parsers.HtmlText(parsedHtml, true)
-		utils.FillTextDocEmptyMetaData(document, pageText)
 
-		document.Content = pageText
+		document.Content = parsers.ProcessText(parsers.HtmlText(parsedHtml, true))
+		utils.FillTextDocEmptyMetaData(document)
+
+		document.Words = parsers.TextWordsFreq(document.Content)
 
 	case "text/plain":
+		document.Content = parsers.ProcessText(document.Content)
+
 		document.MetaData = utils.DefaultMetaData()
-		utils.FillTextDocEmptyMetaData(document, document.Content)
+		utils.FillTextDocEmptyMetaData(document)
+
+		document.Words = parsers.TextWordsFreq(document.Content)
 	}
 
 	return nil

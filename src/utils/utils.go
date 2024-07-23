@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"crawler/src/common"
+	"crawler/src/parsers"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -119,13 +120,13 @@ func ReadPdfFromBytes(b []byte) (string, error) {
 	return content, nil
 }
 
-func FillTextDocEmptyMetaData(document *common.Document, pageText string) {
+func FillTextDocEmptyMetaData(document *common.Document) {
 	if document.MetaData.Title == "" {
-		document.MetaData.Title = pageText[:min(60, len(pageText))]
+		document.MetaData.Title = document.Content[:min(60, len(document.Content))]
 	}
 
 	if document.MetaData.Description == "" {
-		document.MetaData.Description = pageText[:min(160, len(pageText))]
+		document.MetaData.Description = parsers.ProcessText(document.Content[:min(160, len(document.Content))])
 	}
 
 	if document.MetaData.SiteName == "" {

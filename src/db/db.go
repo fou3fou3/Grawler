@@ -42,9 +42,14 @@ func InsertDocument(document *common.Document) error {
 	insertDocument := common.InsertDocument{
 		ParentUrl: document.ParentUrl,
 		Url:       document.Url,
-		Response:  document.Response,
-		Content:   document.Content,
-		MetaData:  document.MetaData,
+
+		Response: document.Response,
+
+		Content:  document.Content,
+		MetaData: document.MetaData,
+
+		Words: document.Words,
+
 		Timestamp: time.Now(),
 	}
 
