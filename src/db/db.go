@@ -70,7 +70,7 @@ func InsertDocument(document *common.Document) error {
 
 func InsertWords(parentUrl string, Words map[string]int) error {
 	for word, freq := range Words {
-		_, err := words.Upsert(fmt.Sprintf("%s%s", parentUrl, word), common.Word{Word: word, Frequency: freq}, &UpsertOptions)
+		_, err := words.Upsert(fmt.Sprintf("%s%s", parentUrl, word), common.Word{Word: word, Frequency: freq, ParentUrl: parentUrl}, &UpsertOptions)
 		if err != nil {
 			return err
 		}

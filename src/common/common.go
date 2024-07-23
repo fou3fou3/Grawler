@@ -61,6 +61,8 @@ type RobotsItem struct {
 }
 
 type Word struct {
+	ParentUrl string
+
 	Word      string
 	Frequency int
 }
