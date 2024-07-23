@@ -37,7 +37,7 @@ func InitCouchbase() error {
 
 	crawledDocuments = documents.Scope("CrawledDocuments").Collection("CrawledDocuments")
 	robots = documents.Scope("CrawledDocuments").Collection("Robots")
-	robots = documents.Scope("CrawledDocuments").Collection("Words")
+	words = documents.Scope("CrawledDocuments").Collection("Words")
 
 	return nil
 }

@@ -93,9 +93,9 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(int(4))
+	wg.Add(int(20))
 
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 20; i++ {
 		go crawlWorker(&wg)
 	}
 
